@@ -32,6 +32,10 @@
     let carDirection = 0;
     let curve;
     let reverse = false;
+    let planeWidth = 20; // Largura da pista
+    let thirdPersonView = true; //começa em terceira pessoa
+    let frontView = false; //visao frontal apenas ativada enquanto 'b' é pressionado
+    let firstPersonView = false; // Visão em primeira pessoa ativada ao pressionar 'p'
 
     init();
     animate();
@@ -95,6 +99,22 @@
         if (e.key === 's' || e.key === 'ArrowDown') moveDown = false;
         if (e.key === 'r') reverse = false; // Desativar marcha à ré
       });
+      
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'p') {
+          firstPersonView = !firstPersonView; // Alternar entre primeira pessoa e terceira pessoa
+          thirdPersonView = !firstPersonView; // Desativar terceira pessoa se primeira pessoa estiver ativa
+        }
+        if (e.key === 'b') {
+          frontView = true; // Ativar visão frontal
+        }
+      });
+
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'b') {
+          frontView = false; // Desativar visão frontal
+        }
+      });
     }
 
     function createTrack() {
@@ -121,7 +141,6 @@
       curve = new THREE.CatmullRomCurve3(points, true);
 
       const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
-      const planeWidth = 20; // Largura da pista
       const divisions = 500;
 
       const geometry = new THREE.BufferGeometry();
@@ -225,6 +244,68 @@
       }
     }
 
+    let collisionCount = 0; // Contador de colisões
+
+    function checkCollisionWithBorders(car, curve, planeWidth) {
+      if (!curve) {
+        console.error("A curva não está definida!");
+        return;
+      }
+
+      const divisions = 200; // Número de divisões para calcular a posição na pista
+      let closestPoint = null;
+      let minDist = Infinity;
+
+      // Encontrar o ponto mais próximo na pista
+      for (let i = 0; i <= divisions; i++) {
+        const t = i / divisions;
+        const point = curve.getPoint(t);
+        if (!point) {
+          console.error(`Ponto inválido na curva para t=${t}`);
+          continue;
+        }
+
+        const dx = point.x - car.position.x;
+        const dz = point.z - car.position.z;
+        const distSq = dx * dx + dz * dz;
+
+        if (distSq < minDist) {
+          minDist = distSq;
+          closestPoint = point;
+        }
+      }
+
+      if (!closestPoint) {
+        console.error("Não foi possível encontrar o ponto mais próximo na curva!");
+        return;
+      }
+
+      // Calcular a direção perpendicular à pista no ponto mais próximo
+      const tangent = curve.getTangentAt(minDist / curve.getLength());
+      if (!tangent) {
+        console.error("Não foi possível calcular a tangente da curva!");
+        return;
+      }
+
+      const perpendicular = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+
+      // Calcular a distância do carro ao centro da pista
+      const offset = new THREE.Vector3().subVectors(car.position, closestPoint);
+      const distanceToCenter = offset.dot(perpendicular);
+
+      // Verificar se o carro está fora dos limites da pista
+      if (Math.abs(distanceToCenter) > planeWidth / 2) {
+        collisionCount++; // Incrementar o contador de colisões
+        console.log(`Colisão detectada! Total de colisões: ${collisionCount}`);
+
+        // Reposicionar o carro dentro dos limites da pista
+        const clampedDistance = Math.sign(distanceToCenter) * (planeWidth / 2 - 0.5); // Ajustar para ficar dentro da pista
+        car.position.copy(closestPoint).addScaledVector(perpendicular, clampedDistance);
+
+        // Opcional: Reduzir a velocidade do carro após a colisão
+        currentSpeed *= 0.5; // Reduzir a velocidade pela metade
+      }
+    }
 
     //Animação do semáforo
     function startRaceCountdown(lights) {
@@ -403,19 +484,39 @@
         carModel.position.y += (closestY + 0.25 - carModel.position.y) * 0.1;
         carModel.rotation.y = carDirection;
 
+        // Verificar colisão com as bordas da pista
+        checkCollisionWithBorders(carModel, curve, planeWidth);
+        
         // Atualizar a posição da câmera para ficar atrás do carro
         const cameraOffset = 10; // Distância da câmera atrás do carro
         const cameraHeight = 5; // Altura da câmera em relação ao carro
-        camera.position.set(
-          carModel.position.x - Math.sin(carDirection) * cameraOffset,
-          carModel.position.y + cameraHeight,
-          carModel.position.z - Math.cos(carDirection) * cameraOffset
-        );
-
-        // Fazer a câmera olhar para o carro
-        camera.lookAt(carModel.position);
+        
+        if (frontView) {
+          // Visão traseira temporária (enquanto 'b' está pressionado)
+          camera.position.set(
+            carModel.position.x,
+            carModel.position.y + 1.5,
+            carModel.position.z
+          );
+          camera.rotation.set(0, carDirection, 0); // Olha para trás
+        } else if (firstPersonView) {
+          // Visão em primeira pessoa (cockpit)
+          camera.position.set(
+            carModel.position.x - Math.sin(carDirection),
+            carModel.position.y + 1.5,
+            carModel.position.z - Math.cos(carDirection)
+          );
+          camera.rotation.set(0, carDirection + Math.PI, 0); // Olha para frente
+        } else {
+          // Visão em terceira pessoa (atrás do carro)
+          camera.position.set(
+            carModel.position.x - Math.sin(carDirection) * cameraOffset,
+            carModel.position.y + cameraHeight,
+            carModel.position.z - Math.cos(carDirection) * cameraOffset
+          );
+          camera.lookAt(carModel.position);
+        }
       }
-
       renderer.render(scene, camera);
     }
 
