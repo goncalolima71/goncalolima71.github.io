@@ -1,0 +1,28 @@
+{
+  "name": "f1-racing-game",
+  "version": "1.0.0",
+  "description": "A 3D infinite Formula 1 racing game built with Three.js.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "webpack serve --open",
+    "build": "webpack"
+  },
+  "keywords": [
+    "Three.js",
+    "racing",
+    "game"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.140.0"
+  },
+  "devDependencies": {
+    "webpack": "^5.0.0",
+    "webpack-cli": "^4.0.0",
+    "webpack-dev-server": "^3.0.0",
+    "babel-loader": "^8.0.0",
+    "babel-core": "^7.0.0",
+    "babel-preset-env": "^1.0.0"
+  }
+}

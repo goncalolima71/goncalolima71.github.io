@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <title>Jogo de F1 3D</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.150.1/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.150.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    
+    //variaveis
+    let scene, camera, renderer, carModel;
+    let moveLeft = false, moveRight = false, moveUp = false, moveDown = false;
+    let currentSpeed = 0;
+    const maxSpeed = 1;
+    const acceleration= 0.01;
+    const braking= 0.02;
+    const turnSpeed = 0.01;
+    let carDirection = 0;
+    let curve;
+    let reverse = false;
+
+    init();
+    animate();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, 10);
+      camera.lookAt(0, 0, 0);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(0, 10, 10);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x404040));
+
+      createTrack();
+      const lights = createSemaphore();   //obter as luzes
+      createStartingGrid();
+      createFinishLine();
+
+      const loader = new GLTFLoader();
+      loader.load('./assets/mclaren_mp45__formula_1.glb', (gltf) => {
+        carModel = gltf.scene;
+        carModel.scale.set(0.5, 0.5, 0.5);
+
+        const startPoint = curve.getPoint(0);
+        const startTangent = curve.getTangent(0);
+
+        carModel.position.copy(startPoint);
+        carDirection = Math.atan2(startTangent.x, startTangent.z);
+        carModel.rotation.y = carDirection;
+
+        scene.add(carModel);
+
+        //Iniciar a contagem regressiva
+        startRaceCountdown(lights);
+      });
+
+      window.addEventListener('resize', onWindowResize);
+
+      document.addEventListener('keydown', (e) => {
+        console.log(`Tecla pressionada: ${e.key}`); // Depuração
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = true;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = true;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = true;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = true;
+        if (e.key === 'r') reverse = true; // Ativar marcha à ré
+      });
+
+      document.addEventListener('keyup', (e) => {
+        console.log(`Tecla liberada: ${e.key}`); // Depuração
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = false;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = false;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = false;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = false;
+        if (e.key === 'r') reverse = false; // Desativar marcha à ré
+      });
+    }
+
+    function createTrack() {
+      const points = [
+        new THREE.Vector3(0, 0, -200), // Reta de partida
+        new THREE.Vector3(50, 0, -200), // Curva 1
+        new THREE.Vector3(100, 0, -150), // Curva 2
+        new THREE.Vector3(150, 0, -100), // Curva 3
+        new THREE.Vector3(200, 0, -50), // Curva 4
+        new THREE.Vector3(150, 0, 0), // Curva 5
+        new THREE.Vector3(100, 0, 50), // Curva 6
+        new THREE.Vector3(50, 0, 100), // Curva 7
+        new THREE.Vector3(0, 0, 150), // Curva 8
+        new THREE.Vector3(-50, 0, 100), // Curva 9
+        new THREE.Vector3(-100, 0, 50), // Curva 10
+        new THREE.Vector3(-150, 0, 0), // Curva 11
+        new THREE.Vector3(-200, 0, -50), // Curva 12
+        new THREE.Vector3(-150, 0, -100), // Curva 13
+        new THREE.Vector3(-100, 0, -150), // Curva 14
+        new THREE.Vector3(-50, 0, -200), // Curva 15
+        new THREE.Vector3(0, 0, -200) // Fechar o circuito
+      ];
+
+      curve = new THREE.CatmullRomCurve3(points, true);
+
+      const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const planeWidth = 20; // Largura da pista
+      const divisions = 500;
+
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const indices = [];
+
+      for (let i = 0; i < divisions; i++) {
+        const t1 = i / divisions;
+        const t2 = (i + 1) / divisions;
+
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+
+        const tangent1 = curve.getTangent(t1);
+        const tangent2 = curve.getTangent(t2);
+
+        const normal1 = new THREE.Vector3(-tangent1.z, 0, tangent1.x).normalize();
+        const normal2 = new THREE.Vector3(-tangent2.z, 0, tangent2.x).normalize();
+
+        const left1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, -planeWidth / 2);
+        const right1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, planeWidth / 2);
+        const left2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, -planeWidth / 2);
+        const right2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, planeWidth / 2);
+
+        const baseIndex = vertices.length / 3;
+
+        vertices.push(
+          left1.x, left1.y, left1.z,
+          right1.x, right1.y, right1.z,
+          left2.x, left2.y, left2.z,
+          right2.x, right2.y, right2.z
+        );
+
+        indices.push(
+          baseIndex, baseIndex + 1, baseIndex + 2,
+          baseIndex + 1, baseIndex + 3, baseIndex + 2
+        );
+      }
+
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+
+      const track = new THREE.Mesh(geometry, trackMaterial);
+      scene.add(track);
+
+      // Adicionar bordas planas
+      addFlatBorders(curve, planeWidth);
+    }
+
+    function addFlatBorders(curve, planeWidth) {
+      const borderWidth = 2; // Largura da borda
+      const borderHeight = 0.3; // Altura da borda (lomba)
+      const borderSegments = 500;
+      const borderColors = [0xff0000, 0xffffff];
+
+      for (let i = 0; i < borderSegments; i++) {
+        const t1 = i / borderSegments;
+        const t2 = (i + 1) / borderSegments;
+
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+
+        const tangent = new THREE.Vector3().subVectors(p2, p1).normalize();
+        const direction = new THREE.Vector3().copy(tangent).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(up, direction).normalize();
+
+        const segmentLength = p1.distanceTo(p2);
+
+        // Criar uma geometria que siga a orientação do segmento
+        const createBorder = (offset, color) => {
+          const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+          const sideOffset = new THREE.Vector3().copy(right).multiplyScalar(offset);
+          center.add(sideOffset);
+
+          // Usar BoxGeometry para criar bordas com altura
+          const geometry = new THREE.BoxGeometry(
+            segmentLength, // Comprimento do segmento
+            borderHeight,  // Altura da borda
+            borderWidth    // Largura da borda
+          );
+          const material = new THREE.MeshStandardMaterial({ color });
+          const mesh = new THREE.Mesh(geometry, material);
+
+          // Alinhar com a pista
+          const quaternion = new THREE.Quaternion();
+          quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+          mesh.quaternion.copy(quaternion);
+
+          // Posicionar no mesmo nível da pista
+          mesh.position.copy(center);
+          mesh.position.y += borderHeight / 2; // Elevar para que a altura fique visível
+
+          scene.add(mesh);
+        };
+
+        const color = borderColors[i % 2];
+        createBorder(-planeWidth / 2 - borderWidth / 2, color); // Esquerda
+        createBorder(planeWidth / 2 + borderWidth / 2, color);  // Direita
+      }
+    }
+
+
+    //Animação do semáforo
+    function startRaceCountdown(lights) {
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index < lights.length) {
+          lights[index].material.color.set(0x333333); // Apaga a luz
+          index++;
+        } else {
+          clearInterval(interval); // Para o intervalo quando todas as luzes forem apagadas
+          console.log('Corrida iniciada!');
+        }
+      }, 2000); // Apaga uma luz a cada 2 segundos
+    }
+
+    //Criação do semáforo
+    function createSemaphore() {
+      const startPoint = curve.getPoint(0);
+      const startTangent = curve.getTangent(0);
+      const planeWidth = 20;
+
+      // Calcular a direção perpendicular à pista
+      const perpendicular = new THREE.Vector3(-startTangent.z, 0, startTangent.x).normalize();
+
+      // Postes laterais
+      const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 32); // Aumentar a largura dos postes
+      const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+
+      const pole1 = new THREE.Mesh(poleGeometry, poleMaterial);
+      pole1.position.copy(startPoint).addScaledVector(perpendicular, -planeWidth / 2);
+      pole1.position.y = 2.5; // Altura do poste
+      scene.add(pole1);
+
+      const pole2 = new THREE.Mesh(poleGeometry, poleMaterial);
+      pole2.position.copy(startPoint).addScaledVector(perpendicular, planeWidth / 2);
+      pole2.position.y = 2.5; // Altura do poste
+      scene.add(pole2);
+
+      // Barra superior
+      const barGeometry = new THREE.BoxGeometry(planeWidth, 0.3, 0.3); // Ajustar a espessura da barra
+      const barMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+
+      const bar = new THREE.Mesh(barGeometry, barMaterial);
+      bar.position.copy(startPoint);
+      bar.position.y = 5; // Altura da barra
+      bar.lookAt(bar.position.clone().add(startTangent)); // Alinhar com a direção da pista
+      scene.add(bar);
+
+      // Semáforos (5 luzes vermelhas)
+      const lightGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+
+      const lights = [];
+      const lightSpacing = planeWidth/ 6;
+      for (let i = 0; i < 5; i++) {
+        //criar um material unico para cada luz
+        const redLightMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        const light = new THREE.Mesh(lightGeometry, redLightMaterial);
+        light.position.copy(startPoint);
+        light.position.y = 5; // Altura das luzes
+        light.position.addScaledVector(perpendicular, -planeWidth / 2 + lightSpacing * (i+1)); // Distribuir luzes ao longo da barra
+        scene.add(light);
+        lights.push(light);
+      }
+      //retorna as luzes para iniciar a contagem so quando o modelo do carro for carregado.
+      return lights;
+    }
+
+    function createStartingGrid() {
+      const numLines = 10; // Número de linhas de posição
+      const lineSpacing = 0.02; // Reduzir ainda mais a distância entre as linhas ao longo do eixo da pista
+      const trackWidth = 10; // Largura da pista
+      const padding = 1; // Espaçamento das linhas em relação às bordas da pista
+
+      for (let i = 0; i < numLines; i++) {
+        // Ajustar o valor inicial de t para começar bem atrás da linha de chegada
+        const t = -0.05 - i * lineSpacing; // Começar mais atrás e reduzir o espaçamento
+
+        // Obter o ponto e a tangente da curva para a posição da linha
+        const linePoint = curve.getPointAt((1 + t) % 1); // Garantir que o valor de t esteja no intervalo [0, 1]
+        const lineTangent = curve.getTangentAt((1 + t) % 1);
+        const perpendicular = new THREE.Vector3(-lineTangent.z, 0, lineTangent.x).normalize(); // Direção perpendicular à pista
+
+        // Criar a linha
+        const lineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Material branco
+        const lineGeometry = new THREE.PlaneGeometry(2, 0.1); // Geometria para as linhas de posição
+        const line = new THREE.Mesh(lineGeometry, lineMaterial);
+        line.rotation.x = -Math.PI / 2; // Alinhar com o chão
+        line.rotation.z = Math.PI / 2; // Garantir que as linhas fiquem paralelas à pista
+
+        // Alternar entre direita e esquerda
+        const direction = i % 2 === 0 ? 1 : -1; // Direita (1) ou esquerda (-1)
+
+        // Calcular a posição da linha com base na borda da pista
+        const offset = direction * (trackWidth / 2 - padding); // Ajustar para a borda correspondente
+        line.position.copy(linePoint).addScaledVector(perpendicular, offset); // Ajustar no eixo perpendicular
+        line.position.y = 0.01; // Elevar ligeiramente para evitar sobreposição com a pista
+
+        scene.add(line);
+      }
+    }
+
+    function createFinishLine() {
+      const finishPoint = curve.getPoint(0.95); // Ponto próximo ao final da pista
+      const finishTangent = curve.getTangent(0.95); // Direção da pista no final
+
+      const finishMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Material branco
+      const finishGeometry = new THREE.PlaneGeometry(10, 0.2); // Geometria para a linha de chegada
+
+      const finishLine = new THREE.Mesh(finishGeometry, finishMaterial);
+      finishLine.rotation.x = -Math.PI / 2; // Alinhar com o chão
+      finishLine.rotation.z = Math.PI / 2; // Garantir que a linha fique paralela à pista
+      finishLine.position.copy(finishPoint);
+      finishLine.position.y = 0.01; // Elevar ligeiramente para evitar sobreposição com a pista
+      scene.add(finishLine);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (carModel && curve) {
+        // Aceleração progressiva com 'w'
+        if (moveUp) {
+          currentSpeed += acceleration;
+          if (currentSpeed > maxSpeed) currentSpeed = maxSpeed; // Limitar à velocidade máxima
+        }
+
+        // Frenagem com 's'
+        if (moveDown) {
+          currentSpeed -= braking;
+          if (currentSpeed < 0) currentSpeed = 0; // Evitar velocidade negativa ao frear
+        }
+
+        // Marcha à ré com 'r'
+        if (reverse) {
+          currentSpeed -= acceleration;
+          if (currentSpeed < -maxSpeed / 8) currentSpeed = -maxSpeed / 8; // Limitar a velocidade da marcha à ré
+        }
+
+        // Reduzir a velocidade gradualmente quando nenhuma tecla é pressionada
+        if (!moveUp && !moveDown && !reverse) {
+          currentSpeed *= 0.98; // Desaceleração natural
+          if (currentSpeed < 0.01 && currentSpeed > -0.01) currentSpeed = 0; // Parar completamente se a velocidade for muito baixa
+        }
+
+        // Reduzir a velocidade ao virar
+        if (moveLeft || moveRight) {
+          currentSpeed *= 0.99; // Reduz a velocidade em 1% ao virar
+        }
+
+        // Atualizar a posição do carro
+        carModel.position.x += Math.sin(carDirection) * currentSpeed;
+        carModel.position.z += Math.cos(carDirection) * currentSpeed;
+
+        // Atualizar a rotação do carro
+        if (moveLeft) carDirection += turnSpeed;
+        if (moveRight) carDirection -= turnSpeed;
+
+        // Ajustar a altura do carro com base na pista
+        let closestY = 0;
+        let minDist = Infinity;
+        const divisions = 200;
+
+        for (let i = 0; i <= divisions; i++) {
+          const t = i / divisions;
+          const point = curve.getPoint(t);
+          const dx = point.x - carModel.position.x;
+          const dz = point.z - carModel.position.z;
+          const distSq = dx * dx + dz * dz;
+
+          if (distSq < minDist) {
+            minDist = distSq;
+            closestY = point.y;
+          }
+        }
+
+        carModel.position.y += (closestY + 0.25 - carModel.position.y) * 0.1;
+        carModel.rotation.y = carDirection;
+
+        // Atualizar a posição da câmera para ficar atrás do carro
+        const cameraOffset = 10; // Distância da câmera atrás do carro
+        const cameraHeight = 5; // Altura da câmera em relação ao carro
+        camera.position.set(
+          carModel.position.x - Math.sin(carDirection) * cameraOffset,
+          carModel.position.y + cameraHeight,
+          carModel.position.z - Math.cos(carDirection) * cameraOffset
+        );
+
+        // Fazer a câmera olhar para o carro
+        camera.lookAt(carModel.position);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  </script>
+</body>
+</html>
