@@ -1,0 +1,10 @@
+{
+    "routes": [
+      {
+        "src": "/mclaren_mp45__formula_1.glb",
+        "headers": {
+          "Content-Type": "model/gltf-binary"
+        }
+      }
+    ]
+  }
