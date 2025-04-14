@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>Jogo de F1 3D</title>
-  <base href="/">
+  <script>
+    const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+    const base = document.createElement("base");
+    base.href = isLocal ? "/" : "/goncalolima71.github.io/";
+    document.head.appendChild(base);
+  </script>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -80,7 +85,7 @@
       createFinishLine();
 
       const loader = new GLTFLoader();
-      loader.load('./mclaren_mp45__formula_1.glb', (gltf) => {
+      loader.load('mclaren_mp45__formula_1.glb', (gltf) => {
         carModel = gltf.scene;
         carModel.scale.set(0.5, 0.5, 0.5);
 
