@@ -30,23 +30,23 @@
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     
-    //variaveis
+    // Variáveis
     let scene, camera, renderer, carModel;
     let moveLeft = false, moveRight = false, moveUp = false, moveDown = false;
     let currentSpeed = 0;
     const maxSpeed = 1;
-    const acceleration= 0.01;
-    const braking= 0.02;
+    const acceleration = 0.01;
+    const braking = 0.02;
     const turnSpeed = 0.01;
     let carDirection = 0;
     let curve;
     let reverse = false;
     let planeWidth = 20; // Largura da pista
-    let thirdPersonView = true; //começa em terceira pessoa
-    let frontView = false; //visao frontal apenas ativada enquanto 'b' é pressionado
+    let thirdPersonView = true; // Começa em terceira pessoa
+    let frontView = false; // Visão frontal apenas ativada enquanto 'b' é pressionado
     let firstPersonView = false; // Visão em primeira pessoa ativada ao pressionar 'p'
     let lapStartTime = 0;
-    let lapTimes= [];
+    let lapTimes = [];
     let currentLap = 0;
     let passedStartLine = false;
     let startLinePosition;
@@ -80,12 +80,15 @@
       scene.add(new THREE.AmbientLight(0x404040));
 
       createTrack();
-      const lights = createSemaphore();   //obter as luzes
+      const lights = createSemaphore();   // Obter as luzes
       createStartingGrid();
       createFinishLine();
 
       const loader = new GLTFLoader();
-      loader.load('./mclaren_mp45__formula_1.glb', (gltf) => {
+      const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+      const modelPath = isLocal ? './mclaren_mp45__formula_1.glb' : '/goncalolima71.github.io/mclaren_mp45__formula_1.glb';
+
+      loader.load(modelPath, (gltf) => {
         carModel = gltf.scene;
         carModel.scale.set(0.5, 0.5, 0.5);
 
@@ -102,10 +105,9 @@
           }
         });
 
-
         scene.add(carModel);
 
-        //Iniciar a contagem regressiva
+        // Iniciar a contagem regressiva
         startRaceCountdown(lights);
       });
 
