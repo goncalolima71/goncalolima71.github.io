@@ -17,7 +17,7 @@
   </script>
 </head>
 <body>
-  <div id="lap-times" style="position: absolute; top: 10px; left: 10px; color: rgb(231, 33, 33); font-size: 20px; background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px;">
+  <div id="lap-times" style="position: absolute; top: 10px; left: 10px; color: rgb(239, 239, 239); font-size: 20px; background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px;">
     Tempo da volta:
   </div>
   <script type="module">
@@ -534,7 +534,7 @@
           );
           camera.rotation.set(0, carDirection + Math.PI, 0); // Olha para frente
         } else {
-          // Visão em terceira pessoa (atrás do carro)
+          // Visão em primeira pessoa (atrás do carro)
           camera.position.set(
             carModel.position.x - Math.sin(carDirection) * cameraOffset,
             carModel.position.y + cameraHeight,
