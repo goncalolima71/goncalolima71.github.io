@@ -86,7 +86,7 @@
 
       const loader = new GLTFLoader();
       const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
-      const modelPath = isLocal ? './mclaren_mp45__formula_1.glb' : '/goncalolima71.github.io/mclaren_mp45__formula_1.glb';
+      const modelPath = isLocal ? './mclaren_mp45__formula_1.glb' : '/mclaren_mp45__formula_1.glb';
 
       loader.load(modelPath, (gltf) => {
         carModel = gltf.scene;
