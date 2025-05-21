@@ -12,6 +12,80 @@
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
+    #start-screen {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #222;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #car-selection {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+    .car-option {
+      border: 3px solid transparent;
+      border-radius: 10px;
+      background: #333;
+      padding: 10px;
+      cursor: pointer;
+      transition: border 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .car-option.selected {
+      border: 3px solid #007bff;
+      background: #222;
+    }
+    .car-thumb {
+      width: 100px;
+      height: 60px;
+      object-fit: contain;
+      margin-bottom: 10px;
+      background: #111;
+      border-radius: 5px;
+    }
+    #start-btn {
+      padding: 20px 40px;
+      font-size: 2rem;
+      border: none;
+      border-radius: 10px;
+      background: #007bff;
+      color: #fff;
+      cursor: pointer;
+      margin-top: 30px;
+      transition: background 0.2s;
+    }
+    #start-btn:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    #loading-circle {
+      width: 60px;
+      height: 60px;
+      border: 8px solid #eee;
+      border-top: 8px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+      display: none;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg);}
+      100% { transform: rotate(360deg);}
+    }
+    #lap-times {
+      position: absolute; top: 10px; left: 10px;
+      color: rgb(239, 239, 239); font-size: 20px;
+      background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px;
+      z-index: 1;
+      display: none;
+    }
   </style>
   <script type="importmap">
     {
@@ -23,13 +97,35 @@
   </script>
 </head>
 <body>
-  <div id="lap-times" style="position: absolute; top: 10px; left: 10px; color: rgb(239, 239, 239); font-size: 20px; background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px;">
+  <!-- Menu inicial -->
+  <div id="start-screen">
+    <div id="car-selection">
+      <div class="car-option selected" data-model="aston_martin_f1_amr23_2023.glb">
+        <span>Aston Martin AMR23</span>
+      </div>
+      <div class="car-option" data-model="scuderia_ferrari_f1_sf23_2023.glb">
+        <span>Ferrari SF23</span>
+      </div>
+      <div class="car-option" data-model="mclaren_mcl60_f1_2023.glb">
+        <span>McLaren MCL60</span>
+      </div>
+      <div class="car-option" data-model="mclaren_mp45__formula_1.glb">
+        <span>McLaren MP4/5</span>
+      </div>
+      <div class="car-option" data-model="shrek_hip_hop_dance.glb">
+        <span>Shrek</span>
+      </div>
+    </div>
+    <div id="loading-circle"></div>
+    <button id="start-btn">Start</button>
+  </div>
+  <div id="lap-times">
     Tempo da volta:
   </div>
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    
+
     // Variáveis
     let scene, camera, renderer, carModel;
     let moveLeft = false, moveRight = false, moveUp = false, moveDown = false;
@@ -41,20 +137,106 @@
     let carDirection = 0;
     let curve;
     let reverse = false;
-    let planeWidth = 20; // Largura da pista
-    let thirdPersonView = true; // Começa em terceira pessoa
-    let frontView = false; // Visão frontal apenas ativada enquanto 'b' é pressionado
-    let firstPersonView = false; // Visão em primeira pessoa ativada ao pressionar 'p'
+    let planeWidth = 20;
+    let thirdPersonView = true;
+    let frontView = false;
+    let firstPersonView = false;
     let lapStartTime = 0;
     let lapTimes = [];
     let currentLap = 0;
     let passedStartLine = false;
     let startLinePosition;
+    let lights = [];
+    let shrekMixer = null; // Para animação do Shrek
+    const clock = new THREE.Clock();
 
-    init();
-    animate();
+    // Elementos da UI
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const loadingCircle = document.getElementById('loading-circle');
+    const lapTimesDiv = document.getElementById('lap-times');
+    const carOptions = document.querySelectorAll('.car-option');
 
-    function init() {
+    // Estado inicial
+    loadingCircle.style.display = 'none';
+    startBtn.disabled = false;
+
+    // Seleção de carro
+    let selectedModel = carOptions[0].dataset.model;
+    carOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        carOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        selectedModel = option.dataset.model;
+      });
+    });
+
+    // Ao clicar em Start, carrega o modelo escolhido
+    startBtn.addEventListener('click', () => {
+      startBtn.disabled = true;
+      loadingCircle.style.display = 'block';
+
+      const loader = new GLTFLoader();
+      const modelPath = isLocal
+        ? `./${selectedModel}`
+        : `/goncalolima71.github.io/${selectedModel}`;
+
+      loader.load(
+        modelPath,
+        (gltf) => {
+          loadingCircle.style.display = 'none';
+          startScreen.style.display = 'none';
+          lapTimesDiv.style.display = 'block';
+
+          // Ajuste de escala e rotação conforme o modelo selecionado
+          const carModelLoaded = gltf.scene;
+          shrekMixer = null; // Limpa mixer anterior
+
+          switch (selectedModel) {
+            case "aston_martin_f1_amr23_2023.glb":
+              carModelLoaded.scale.set(1.2, 1.2, 1.2);
+              carModelLoaded.rotation.y = Math.PI;
+              break;
+            case "scuderia_ferrari_f1_sf23_2023.glb":
+              carModelLoaded.scale.set(1.2, 1.2, 1.2);
+              carModelLoaded.rotation.y = Math.PI;
+              break;
+            case "mclaren_mcl60_f1_2023.glb":
+              carModelLoaded.scale.set(1.2, 1.2, 1.2);
+              carModelLoaded.rotation.y = Math.PI;
+              break;
+            case "mclaren_mp45__formula_1.glb":
+              carModelLoaded.scale.set(0.5, 0.5, 0.5);
+              break;
+            case "shrek_hip_hop_dance.glb":
+              carModelLoaded.scale.set(0.7, 0.7, 0.7); // Shrek menor
+              carModelLoaded.rotation.y = Math.PI;
+              // Ativar animação de caminhada se existir
+              if (gltf.animations && gltf.animations.length > 0) {
+                shrekMixer = new THREE.AnimationMixer(carModelLoaded);
+                const action = shrekMixer.clipAction(gltf.animations[0]);
+                action.play();
+                action.timeScale = 1.5; // Shrek anda mais rápido
+              }
+              break;
+            default:
+              carModelLoaded.scale.set(1.2, 1.2, 1.2);
+          }
+
+          init(carModelLoaded);
+          animate();
+        },
+        undefined,
+        (error) => {
+          loadingCircle.style.display = 'none';
+          startBtn.innerText = "Erro ao carregar modelo!";
+          startBtn.disabled = true;
+          console.error('Erro ao carregar o modelo:', error);
+        }
+      );
+    });
+
+    function init(loadedCarModel) {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x87CEEB);
 
@@ -69,82 +251,200 @@
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-      const light = new THREE.DirectionalLight(0xffffff, 1);
-      light.position.set(0, 10, 10);
+      // Luz ambiente mais forte
+      scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+      // Luz direcional extra para iluminar melhor o carro
+      const light = new THREE.DirectionalLight(0xffffff, 1.5);
+      light.position.set(0, 20, 20);
       light.castShadow = true;
-      light.shadow.mapSize.width = 1024;
-      light.shadow.mapSize.height = 1024;
-      light.shadow.camera.near = 0.5;
-      light.shadow.camera.far = 50;
       scene.add(light);
-      scene.add(new THREE.AmbientLight(0x404040));
 
+      // CRIAR A PISTA ANTES DE USAR curve!
       createTrack();
-      const lights = createSemaphore();   // Obter as luzes
+
+      // Criar semáforo e guardar as luzes
+      lights = createSemaphore();
       createStartingGrid();
       createFinishLine();
 
-      const loader = new GLTFLoader();
-      const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
-      const modelPath = isLocal ? './mclaren_mp45__formula_1.glb' : '/mclaren_mp45__formula_1.glb';
+      const startPoint = curve.getPoint(0);
+      const startTangent = curve.getTangent(0);
 
-      loader.load(modelPath, (gltf) => {
-        carModel = gltf.scene;
-        carModel.scale.set(0.5, 0.5, 0.5);
+      carModel = loadedCarModel;
+      carModel.position.copy(startPoint);
+      carDirection = Math.atan2(startTangent.x, startTangent.z);
+      carModel.rotation.y += carDirection;
 
-        const startPoint = curve.getPoint(0);
-        const startTangent = curve.getTangent(0);
-
-        carModel.position.copy(startPoint);
-        carDirection = Math.atan2(startTangent.x, startTangent.z);
-        carModel.rotation.y = carDirection;
-
-        carModel.traverse((child) => {
-          if (child.isMesh) {
-            child.castShadow = true;
-          }
-        });
-
-        scene.add(carModel);
-
-        // Iniciar a contagem regressiva
-        startRaceCountdown(lights);
+      carModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+        }
       });
+
+      scene.add(carModel);
+
+      // Fundo de relva grande
+      const grassGeometry = new THREE.PlaneGeometry(2000, 2000);
+      const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x7ec850 });
+      const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+      grass.rotation.x = -Math.PI / 2;
+      grass.position.y = -0.02;
+      scene.add(grass);
+
+      // Função para verificar se um ponto está dentro dos limites da pista
+      function isPointNearTrack(x, z, minDist = planeWidth / 2 + 8) {
+        if (!curve) return false;
+        let closestDist = Infinity;
+        const divisions = 500;
+        for (let i = 0; i <= divisions; i++) {
+          const t = i / divisions;
+          const point = curve.getPoint(t);
+          const dx = point.x - x;
+          const dz = point.z - z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDist) closestDist = distSq;
+        }
+        return Math.sqrt(closestDist) < minDist;
+      }
+
+      // Função para adicionar árvores maiores e variadas
+      function addTree(x, z, type = 0) {
+        let trunk, crown;
+        if (type === 0) {
+          // Árvore redonda grande
+          trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.5, 0.5, 5),
+            new THREE.MeshStandardMaterial({ color: 0x8b5a2b })
+          );
+          trunk.position.set(x, 2.5, z);
+
+          crown = new THREE.Mesh(
+            new THREE.SphereGeometry(2.2, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0x267f00 })
+          );
+          crown.position.set(x, 6, z);
+        } else {
+          // Árvore tipo pinheiro grande
+          trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.4, 0.4, 4),
+            new THREE.MeshStandardMaterial({ color: 0x6b4226 })
+          );
+          trunk.position.set(x, 2, z);
+
+          crown = new THREE.Mesh(
+            new THREE.ConeGeometry(2, 4, 12),
+            new THREE.MeshStandardMaterial({ color: 0x1b5e20 })
+          );
+          crown.position.set(x, 5, z);
+        }
+        scene.add(trunk);
+        scene.add(crown);
+      }
+
+      // Adicionar muitas árvores maiores e mais juntas à volta da pista, evitando a pista
+      let treesPlaced = 0;
+      let tries = 0;
+      const totalTrees = 180;
+      while (treesPlaced < totalTrees && tries < totalTrees * 8) {
+        tries++;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 120 + Math.random() * 80; // Mais perto da pista
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        if (!isPointNearTrack(x, z, planeWidth / 2 + 7)) { // margem menor para ficarem mais juntas
+          const type = Math.random() > 0.5 ? 1 : 0;
+          addTree(x, z, type);
+          treesPlaced++;
+        }
+      }
+
+      // Função para adicionar bancadas abertas e viradas para a pista, junto às bordas
+      function addGrandstandFacingTrack(t, dist, width = 28, depth = 6, height = 4, color = 0xcccccc) {
+        // t: valor entre 0 e 1 ao longo da curva
+        const point = curve.getPointAt(t);
+        const tangent = curve.getTangentAt(t);
+        const perpendicular = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+
+        // Posição da bancada fora da pista
+        const pos = new THREE.Vector3().copy(point).addScaledVector(perpendicular, dist);
+
+        // Base da bancada
+        const base = new THREE.Mesh(
+          new THREE.BoxGeometry(width, 0.5, depth),
+          new THREE.MeshStandardMaterial({ color })
+        );
+        base.position.copy(pos);
+        base.position.y += 0.25;
+
+        // Costas da bancada (atrás) - agora do lado oposto ao público
+        const back = new THREE.Mesh(
+          new THREE.BoxGeometry(width, height, 0.3),
+          new THREE.MeshStandardMaterial({ color: 0x888888 })
+        );
+        back.position.copy(pos);
+        back.position.y += height / 2;
+        // Colocar atrás da base, afastando no sentido do perpendicular PARA FORA da pista
+        back.position.x += perpendicular.x * (depth / 2 - 0.15);
+        back.position.z += perpendicular.z * (depth / 2 - 0.15);
+
+        // Orientar ambos para a pista (para o ponto da pista mais próximo)
+        base.lookAt(point.x, base.position.y, point.z);
+        back.lookAt(point.x, back.position.y, point.z);
+
+        scene.add(base);
+        scene.add(back);
+
+        // Público em filas, alinhado com a bancada e virado para a pista
+        for (let i = 0; i < width - 2; i += 2) {
+          for (let j = 0; j < 3; j++) {
+            const fan = new THREE.Mesh(
+              new THREE.SphereGeometry(0.5, 8, 8),
+              new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+            );
+            // Distribuir os adeptos em filas, alinhados com a base da bancada
+            const offsetDepth = depth / 2 - 1.2 - j * 1.2; // Fica do lado aberto
+            fan.position.set(
+              base.position.x + perpendicular.x * offsetDepth + tangent.x * (i - width / 2 + 2),
+              base.position.y + 0.8,
+              base.position.z + perpendicular.z * offsetDepth + tangent.z * (i - width / 2 + 2)
+            );
+            fan.lookAt(point.x, fan.position.y, point.z);
+            scene.add(fan);
+          }
+        }
+      }
+
+      // Colocar bancadas junto às bordas da pista e viradas para a pista
+      addGrandstandFacingTrack(0.08, planeWidth / 2 + 8, 28, 6, 4, 0xcccccc);
+      addGrandstandFacingTrack(0.32, -(planeWidth / 2 + 8), 22, 6, 4, 0x888888);
+      addGrandstandFacingTrack(0.62, planeWidth / 2 + 8, 24, 6, 4, 0xbbbbbb);
+
+      startRaceCountdown();
 
       window.addEventListener('resize', onWindowResize);
 
       document.addEventListener('keydown', (e) => {
-        console.log(`Tecla pressionada: ${e.key}`); // Depuração
         if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = true;
         if (e.key === 'd' || e.key === 'ArrowRight') moveRight = true;
         if (e.key === 'w' || e.key === 'ArrowUp') moveUp = true;
         if (e.key === 's' || e.key === 'ArrowDown') moveDown = true;
-        if (e.key === 'r') reverse = true; // Ativar marcha à ré
+        if (e.key === 'r') reverse = true;
+        if (e.key === 'p') {
+          firstPersonView = !firstPersonView;
+          thirdPersonView = !firstPersonView;
+        }
+        if (e.key === 'b') {
+          frontView = true;
+        }
       });
 
       document.addEventListener('keyup', (e) => {
-        console.log(`Tecla liberada: ${e.key}`); // Depuração
         if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = false;
         if (e.key === 'd' || e.key === 'ArrowRight') moveRight = false;
         if (e.key === 'w' || e.key === 'ArrowUp') moveUp = false;
         if (e.key === 's' || e.key === 'ArrowDown') moveDown = false;
-        if (e.key === 'r') reverse = false; // Desativar marcha à ré
-      });
-      
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'p') {
-          firstPersonView = !firstPersonView; // Alternar entre primeira pessoa e terceira pessoa
-          thirdPersonView = !firstPersonView; // Desativar terceira pessoa se primeira pessoa estiver ativa
-        }
-        if (e.key === 'b') {
-          frontView = true; // Ativar visão frontal
-        }
-      });
-
-      document.addEventListener('keyup', (e) => {
-        if (e.key === 'b') {
-          frontView = false; // Desativar visão frontal
-        }
+        if (e.key === 'r') reverse = false;
+        if (e.key === 'b') frontView = false;
       });
     }
 
@@ -342,7 +642,7 @@
     }
 
     //Animação do semáforo
-    function startRaceCountdown(lights) {
+    function startRaceCountdown() {
       let index = 0;
       const interval = setInterval(() => {
         if (index < lights.length) {
@@ -359,51 +659,48 @@
     function createSemaphore() {
       const startPoint = curve.getPoint(0);
       const startTangent = curve.getTangent(0);
-      const planeWidth = 20;
 
       // Calcular a direção perpendicular à pista
       const perpendicular = new THREE.Vector3(-startTangent.z, 0, startTangent.x).normalize();
 
       // Postes laterais
-      const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 32); // Aumentar a largura dos postes
+      const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 32);
       const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
 
       const pole1 = new THREE.Mesh(poleGeometry, poleMaterial);
       pole1.position.copy(startPoint).addScaledVector(perpendicular, -planeWidth / 2);
-      pole1.position.y = 2.5; // Altura do poste
+      pole1.position.y = 2.5;
       scene.add(pole1);
 
       const pole2 = new THREE.Mesh(poleGeometry, poleMaterial);
       pole2.position.copy(startPoint).addScaledVector(perpendicular, planeWidth / 2);
-      pole2.position.y = 2.5; // Altura do poste
+      pole2.position.y = 2.5;
       scene.add(pole2);
 
       // Barra superior
-      const barGeometry = new THREE.BoxGeometry(planeWidth, 0.3, 0.3); // Ajustar a espessura da barra
+      const barGeometry = new THREE.BoxGeometry(planeWidth, 0.3, 0.3);
       const barMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
 
       const bar = new THREE.Mesh(barGeometry, barMaterial);
       bar.position.copy(startPoint);
-      bar.position.y = 5; // Altura da barra
-      bar.lookAt(bar.position.clone().add(startTangent)); // Alinhar com a direção da pista
+      bar.position.y = 5;
+      bar.lookAt(bar.position.clone().add(startTangent));
       scene.add(bar);
 
       // Semáforos (5 luzes vermelhas)
       const lightGeometry = new THREE.SphereGeometry(0.3, 32, 32);
 
       const lights = [];
-      const lightSpacing = planeWidth/ 6;
+      const lightSpacing = planeWidth / 6;
       for (let i = 0; i < 5; i++) {
-        //criar um material unico para cada luz
         const redLightMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
         const light = new THREE.Mesh(lightGeometry, redLightMaterial);
         light.position.copy(startPoint);
-        light.position.y = 5; // Altura das luzes
-        light.position.addScaledVector(perpendicular, -planeWidth / 2 + lightSpacing * (i+1)); // Distribuir luzes ao longo da barra
+        light.position.y = 5;
+        light.position.addScaledVector(perpendicular, -planeWidth / 2 + lightSpacing * (i + 1));
         scene.add(light);
         lights.push(light);
       }
-      //retorna as luzes para iniciar a contagem so quando o modelo do carro for carregado.
       return lights;
     }
 
@@ -459,40 +756,40 @@
     function animate() {
       requestAnimationFrame(animate);
 
+      // Atualiza animação do Shrek se necessário
+      if (shrekMixer) {
+        const delta = clock.getDelta();
+        shrekMixer.update(delta);
+      }
+
       if (carModel && curve) {
         // Aceleração progressiva com 'w'
         if (moveUp) {
           currentSpeed += acceleration;
-          if (currentSpeed > maxSpeed) currentSpeed = maxSpeed; // Limitar à velocidade máxima
+          if (currentSpeed > maxSpeed) currentSpeed = maxSpeed;
         }
-
         // Frenagem com 's'
         if (moveDown) {
           currentSpeed -= braking;
-          if (currentSpeed < 0) currentSpeed = 0; // Evitar velocidade negativa ao frear
+          if (currentSpeed < 0) currentSpeed = 0;
         }
-
         // Marcha à ré com 'r'
         if (reverse) {
           currentSpeed -= acceleration;
-          if (currentSpeed < -maxSpeed / 8) currentSpeed = -maxSpeed / 8; // Limitar a velocidade da marcha à ré
+          if (currentSpeed < -maxSpeed / 8) currentSpeed = -maxSpeed / 8;
         }
-
         // Reduzir a velocidade gradualmente quando nenhuma tecla é pressionada
         if (!moveUp && !moveDown && !reverse) {
-          currentSpeed *= 0.98; // Desaceleração natural
-          if (currentSpeed < 0.01 && currentSpeed > -0.01) currentSpeed = 0; // Parar completamente se a velocidade for muito baixa
+          currentSpeed *= 0.98;
+          if (currentSpeed < 0.01 && currentSpeed > -0.01) currentSpeed = 0;
         }
-
         // Reduzir a velocidade ao virar
         if (moveLeft || moveRight) {
-          currentSpeed *= 0.99; // Reduz a velocidade em 1% ao virar
+          currentSpeed *= 0.99;
         }
-
         // Atualizar a posição do carro
         carModel.position.x += Math.sin(carDirection) * currentSpeed;
         carModel.position.z += Math.cos(carDirection) * currentSpeed;
-
         // Atualizar a rotação do carro
         if (moveLeft) carDirection += turnSpeed;
         if (moveRight) carDirection -= turnSpeed;
@@ -522,27 +819,28 @@
         checkCollisionWithBorders(carModel, curve, planeWidth);
 
         // Atualizar a posição da câmera para ficar atrás do carro
-        const cameraOffset = 10; // Distância da câmera atrás do carro
-        const cameraHeight = 5; // Altura da câmera em relação ao carro
+        const cameraOffset = 10;
+        const cameraHeight = 5;
 
         if (frontView) {
-          // Visão traseira temporária (enquanto 'b' está pressionado)
           camera.position.set(
             carModel.position.x,
             carModel.position.y + 1.5,
             carModel.position.z
           );
-          camera.rotation.set(0, carDirection, 0); // Olha para trás
+          camera.rotation.set(0, carDirection, 0);
         } else if (firstPersonView) {
-          // Visão em primeira pessoa (cockpit)
           camera.position.set(
-            carModel.position.x - Math.sin(carDirection),
+            carModel.position.x + Math.sin(carDirection) * 1.2,
             carModel.position.y + 1.5,
-            carModel.position.z - Math.cos(carDirection)
+            carModel.position.z + Math.cos(carDirection) * 1.2
           );
-          camera.rotation.set(0, carDirection + Math.PI, 0); // Olha para frente
+          camera.lookAt(
+            carModel.position.x + Math.sin(carDirection) * 10,
+            carModel.position.y + 1.5,
+            carModel.position.z + Math.cos(carDirection) * 10
+          );
         } else {
-          // Visão em primeira pessoa (atrás do carro)
           camera.position.set(
             carModel.position.x - Math.sin(carDirection) * cameraOffset,
             carModel.position.y + cameraHeight,
@@ -555,11 +853,8 @@
         const startPoint = curve.getPoint(0);
         const distanceToStart = carModel.position.distanceTo(startPoint);
 
-        console.log(`Distância para o ponto inicial: ${distanceToStart}`); // Log para depuração
-
         if (startLinePosition) {
           const distanceToStartLine = carModel.position.distanceTo(startLinePosition);
-
           if (distanceToStartLine < 5) { // Ajuste o valor 5 conforme necessário para o tamanho da pista
             if (!passedStartLine) {
               passedStartLine = true;
@@ -598,6 +893,8 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
+
+    window.addEventListener('resize', onWindowResize);
   </script>
 </body>
 </html>
