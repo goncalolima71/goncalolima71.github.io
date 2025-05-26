@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <title>Jogo de F1 3D</title>
+  <script>
+    const isLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+    const base = document.createElement("base");
+    base.href = isLocal ? "/" : "/goncalolima71.github.io/";
+    document.head.appendChild(base);
+  </script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #start-screen {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #222;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #car-selection {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+    .car-option {
+      border: 3px solid transparent;
+      border-radius: 10px;
+      background: #333;
+      padding: 10px;
+      cursor: pointer;
+      transition: border 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .car-option.selected {
+      border: 3px solid #007bff;
+      background: #222;
+    }
+    .car-thumb {
+      width: 100px;
+      height: 60px;
+      object-fit: contain;
+      margin-bottom: 10px;
+      background: #111;
+      border-radius: 5px;
+    }
+    #start-btn {
+      padding: 20px 40px;
+      font-size: 2rem;
+      border: none;
+      border-radius: 10px;
+      background: #007bff;
+      color: #fff;
+      cursor: pointer;
+      margin-top: 30px;
+      transition: background 0.2s;
+    }
+    #start-btn:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    #loading-circle {
+      width: 60px;
+      height: 60px;
+      border: 8px solid #eee;
+      border-top: 8px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+      display: none;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg);}
+      100% { transform: rotate(360deg);}
+    }
+    #lap-times {
+      position: absolute; top: 10px; left: 10px;
+      color: rgb(239, 239, 239); font-size: 20px;
+      background: rgba(0, 0, 0, 0.5); padding: 10px; border-radius: 5px;
+      z-index: 1;
+      display: none;
+    }
+    .track-option {
+      border: 2px solid transparent;
+      border-radius: 8px;
+      background: #444;
+      color: #fff;
+      padding: 10px 24px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      transition: border 0.2s, background 0.2s;
+      margin-bottom: 0;
+    }
+    .track-option.selected {
+      border: 2px solid #ffb300;
+      background: #222;
+      color: #ffb300;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.150.1/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.150.1/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Menu inicial -->
+  <div id="start-screen">
+    <div id="track-selection" style="display:flex; gap:20px; margin-bottom:20px;">
+      <div class="track-option selected" data-track="default">Pista Original</div>
+      <div class="track-option" data-track="monaco">Mónaco</div>
+    </div>
+    <div id="loading-circle"></div>
+    <button id="start-btn">Start</button>
+  </div>
+  <div id="lap-times">
+    Tempo da volta:
+  </div>
+  <script type="module">
+    import * as THREE from 'three';
+    import * as CANNON from 'https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { TextureLoader } from 'three';
+
+    // Variáveis globais
+    let scene, camera, renderer, carModel;
+    let moveLeft = false, moveRight = false, moveUp = false, moveDown = false;
+    let currentSpeed = 0;
+    const maxSpeed = 1.0;
+    const acceleration = 0.02;
+    const braking = 0.02;
+    const turnSpeed = 0.01;
+    let carDirection = 0;
+    let curve;
+    let reverse = false;
+    let planeWidth = 28;
+    let planeWidth2 = 20;
+    let thirdPersonView = true;
+    let frontView = false;
+    let firstPersonView = false;
+    let lapStartTime = 0;
+    let lapTimes = [];
+    let collidableObjects = [];
+    let currentLap = 0;
+    let passedStartLine = false;
+    let startLinePosition;
+    let lights = [];
+    let shrekMixer = null; // Para animação do Shrek
+    const clock = new THREE.Clock();
+    let monacoStartLinePosition = null;
+
+    // Elementos da UI
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const loadingCircle = document.getElementById('loading-circle');
+    const lapTimesDiv = document.getElementById('lap-times');
+    // --- Seleção de pista ---
+    const trackOptions = document.querySelectorAll('.track-option');
+    let selectedTrack = 'default';
+    trackOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        trackOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        selectedTrack = option.dataset.track;
+      });
+    });
+
+    // Estado inicial
+    loadingCircle.style.display = 'none';
+    startBtn.disabled = false;
+
+    // Ao clicar em Start, carrega o modelo escolhido
+    startBtn.addEventListener('click', () => {
+      startBtn.disabled = true;
+      loadingCircle.style.display = 'block';
+
+      setTimeout(() => {
+        loadingCircle.style.display = 'none';
+        startScreen.style.display = 'none';
+        lapTimesDiv.style.display = 'block';
+
+        if (selectedTrack === 'monaco') {
+          initMonaco();
+        } else {
+          init();
+        }
+        animate(); // Só aqui!
+      }, 500); // Simula um pequeno loading
+    });
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, 10);
+      camera.lookAt(0, 0, 0);
+
+      const oldCanvas = document.querySelector('canvas');
+      if (oldCanvas) oldCanvas.remove();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Já é suave, mas pode ser melhorado
+      renderer.shadowMap.autoUpdate = true;
+      renderer.shadowMap.needsUpdate = true;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setClearColor(0x87CEEB);
+
+      // Luz do sol (DirectionalLight) para simular o sol
+      const sun = new THREE.DirectionalLight(0xfff7e0, 2.2); // cor amarelada, intensidade forte
+      sun.position.set(80, 120, 60); // posição alta e lateral
+      sun.castShadow = true;
+      sun.shadow.mapSize.width = 4096; // aumentar resolução
+      sun.shadow.mapSize.height = 4096;
+      sun.shadow.bias = -0.0005; // reduzir artefactos
+      sun.shadow.normalBias = 0.01;
+      sun.shadow.radius = 4; // suavizar ainda mais
+      sun.shadow.camera.near = 10;
+      sun.shadow.camera.far = 400;
+      sun.shadow.camera.left = -200;
+      sun.shadow.camera.right = 200;
+      sun.shadow.camera.top = 200;
+      sun.shadow.camera.bottom = -200;
+      scene.add(sun);
+      // Opcional: helper para visualizar área de sombra
+      // const helper = new THREE.CameraHelper(sun.shadow.camera);
+      // scene.add(helper);
+
+      // Luz direcional extra para iluminar melhor o carro (mantém, mas reduz intensidade)
+      const light = new THREE.DirectionalLight(0xffffff, 0.7);
+      light.position.set(0, 20, 20);
+      light.castShadow = false;
+      scene.add(light);
+
+      createTrack();
+
+      // Criar semáforo e guardar as luzes
+      lights = createSemaphore();
+      createStartingGrid();
+      createFinishLine();
+
+      // Em vez de carModel = loadedCarModel;
+      carModel = chassisMesh;
+      const tStart = 0.98; // Valor próximo de 1 para ficar antes da linha
+      const start = curve.getPointAt(tStart);
+      const tangent = curve.getTangentAt(tStart);
+      const angleY = Math.atan2(tangent.x, tangent.z);
+
+      // Novo ponto recuado antes da linha de partida
+      const offset = -5; // ajusta este valor conforme necessário
+      const startBeforeLine = start.clone().add(tangent.clone().multiplyScalar(offset));
+
+      carModel.position.copy(startBeforeLine);
+
+      // Corrigir rotação: alinhar com a tangente da pista e garantir verticalidade
+      const forward = tangent.clone().setY(0).normalize(); // direção da pista no plano XZ
+      const angle = Math.atan2(forward.x, forward.z); // ângulo em relação ao eixo Z
+      carModel.rotation.set(0, Math.PI -angle, 0); // Corrige o sentido do alinhamento
+
+      carModel.position.y = 0;
+      scene.add(carModel);
+
+      chassisBody.position.set(startBeforeLine.x, startBeforeLine.y + 0.3, startBeforeLine.z);
+      chassisBody.velocity.set(0, 0, 0);
+      chassisBody.angularVelocity.set(0, 0, 0);
+      // Corrigir orientação física: garantir que o eixo Y está para cima
+      const up = new CANNON.Vec3(0, 1, 0);
+      const q = new CANNON.Quaternion();
+      q.setFromVectors(new CANNON.Vec3(0, 0, 1), forward);
+      chassisBody.quaternion.copy(q);
+
+      //adicionar relva simples (sem textura)
+      const grassMaterial = new THREE.MeshStandardMaterial({ color: 0x3a9c2d });
+      const grassGeometry = new THREE.PlaneGeometry(2000, 2000);
+      const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+      grass.rotation.x = -Math.PI / 2;
+      grass.position.y = -0.02;
+      scene.add(grass);
+
+
+      // Função para verificar se um ponto está dentro dos limites da pista
+      function isPointNearTrack(x, z, minDist = planeWidth / 2 + 8) {
+        if (!curve) return false;
+        let closestDist = Infinity;
+        const divisions = 500;
+        for (let i = 0; i <= divisions; i++) {
+          const t = i / divisions;
+          const point = curve.getPoint(t);
+          const dx = point.x - x;
+          const dz = point.z - z;
+          const distSq = dx * dx + dz * dz;
+          if (distSq < closestDist) closestDist = distSq;
+        }
+        return Math.sqrt(closestDist) < minDist;
+      }
+
+      // Função para adicionar árvores maiores e variadas
+      function addTree(x, z, type = 0) {
+        let trunk, crown;
+        if (type === 0) {
+          // Árvore redonda grande
+          trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.5, 0.5, 5),
+            new THREE.MeshStandardMaterial({ color: 0x8b5a2b })
+          );
+          trunk.position.set(x, 2.5, z);
+          trunk.castShadow = true;
+          trunk.receiveShadow = true;
+
+          crown = new THREE.Mesh(
+            new THREE.SphereGeometry(2.2, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0x267f00 })
+          );
+          crown.position.set(x, 6, z);
+          crown.castShadow = true;
+          crown.receiveShadow = true;
+        } else {
+          // Árvore tipo pinheiro grande
+          trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.4, 0.4, 4),
+            new THREE.MeshStandardMaterial({ color: 0x6b4226 })
+          );
+          trunk.position.set(x, 2, z);
+          trunk.castShadow = true;
+          trunk.receiveShadow = true;
+
+          crown = new THREE.Mesh(
+            new THREE.ConeGeometry(2, 4, 12),
+            new THREE.MeshStandardMaterial({ color: 0x1b5e20 })
+          );
+          crown.position.set(x, 5, z);
+          crown.castShadow = true;
+          crown.receiveShadow = true;
+        }
+        scene.add(trunk);
+        scene.add(crown);
+        collidableObjects.push(trunk, crown); // Adiciona ambos à lista
+      }
+
+      // Adicionar muitas árvores maiores e mais juntas à volta da pista, evitando a pista
+      let treesPlaced = 0;
+      let tries = 0;
+      const totalTrees = 180;
+      while (treesPlaced < totalTrees && tries < totalTrees * 8) {
+        tries++;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 120 + Math.random() * 80; // Mais perto da pista
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        if (!isPointNearTrack(x, z, planeWidth / 2 + 7)) { // margem menor para ficarem mais juntas
+          const type = Math.random() > 0.5 ? 1 : 0;
+          addTree(x, z, type);
+          treesPlaced++;
+        }
+      }
+
+      startRaceCountdown();
+      window.addEventListener('resize', onWindowResize);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = true;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = true;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = true;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = true;
+        if (e.key === 'r') reverse = true;
+        if (e.key === 'p') {
+          firstPersonView = !firstPersonView;
+          thirdPersonView = !firstPersonView;
+        }
+        if (e.key === 'b') {
+          frontView = true;
+        }
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = false;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = false;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = false;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = false;
+        if (e.key === 'r') reverse = false;
+        if (e.key === 'b') frontView = false;
+      });
+    }
+
+    // Função para criar a pista de Mónaco
+    function initMonaco() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x7ec0ee); // azul claro, céu
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, 10);
+      camera.lookAt(0, 0, 0);
+
+      const oldCanvas = document.querySelector('canvas');
+      if (oldCanvas) oldCanvas.remove();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setClearColor(0x7ec0ee);
+
+      // Sol
+      const sun = new THREE.DirectionalLight(0xfff7e0, 2.2);
+      sun.position.set(80, 120, 60);
+      sun.castShadow = true;
+      sun.shadow.mapSize.width = 4096;
+      sun.shadow.mapSize.height = 4096;
+      sun.shadow.bias = -0.0005;
+      sun.shadow.normalBias = 0.01;
+      sun.shadow.radius = 4;
+      sun.shadow.camera.near = 10;
+      sun.shadow.camera.far = 400;
+      sun.shadow.camera.left = -200;
+      sun.shadow.camera.right = 200;
+      sun.shadow.camera.top = 200;
+      sun.shadow.camera.bottom = -200;
+      scene.add(sun);
+
+      // Luz ambiente
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+      // Luz extra
+      const light = new THREE.DirectionalLight(0xffffff, 0.7);
+      light.position.set(0, 20, 20);
+      light.castShadow = false;
+      scene.add(light);
+
+      // --- Traçado da pista de Mónaco (mais longa, menos subidas, curvas apertadas) ---
+      const points = [
+        // Retas iniciais
+        new THREE.Vector3(400, 0, 0),
+        new THREE.Vector3(350, 0, 60),
+        // SUBIDA com curvas para a direita
+        new THREE.Vector3(320, 2, 120),
+        new THREE.Vector3(300, 4, 180),
+        new THREE.Vector3(270, 6, 220),
+        // TOPO da subida, curva apertada à esquerda
+        new THREE.Vector3(220, 6, 250),
+        new THREE.Vector3(160, 5, 270),
+        // DESCIDA com curvas para a esquerda
+        new THREE.Vector3(100, 2, 260),
+        new THREE.Vector3(60, 0, 220),
+        // Curva apertada e plano
+        new THREE.Vector3(40, 0, 180),
+        new THREE.Vector3(30, 0, 120),
+        new THREE.Vector3(40, 0, 60),
+        // Outra subida com curvas para a direita
+        new THREE.Vector3(80, 1, 20),
+        new THREE.Vector3(120, 3, 0),
+        new THREE.Vector3(160, 5, -20),
+        // Descida com curvas para a esquerda
+        new THREE.Vector3(200, 3, -40),
+        new THREE.Vector3(250, 1, -60),
+        new THREE.Vector3(300, 0, -80),
+        // Plano e curvas apertadas
+        new THREE.Vector3(350, 0, -120),
+        new THREE.Vector3(400, 0, -180),
+        new THREE.Vector3(450, 0, -240),
+        new THREE.Vector3(500, 0, -300),
+        new THREE.Vector3(550, 0, -360),
+        new THREE.Vector3(600, 0, -400),
+        new THREE.Vector3(650, 0, -420),
+        new THREE.Vector3(700, 0, -400),
+        new THREE.Vector3(750, 0, -350),
+        new THREE.Vector3(800, 0, -300),
+        new THREE.Vector3(820, 0, -240),
+        new THREE.Vector3(800, 0, -180),
+        new THREE.Vector3(750, 0, -120),
+        new THREE.Vector3(700, 0, -60),
+        new THREE.Vector3(650, 0, 0),
+        new THREE.Vector3(600, 0, 60),
+        new THREE.Vector3(550, 0, 120),
+        new THREE.Vector3(500, 0, 180),
+        new THREE.Vector3(450, 0, 220),
+        new THREE.Vector3(400, 0, 240),
+        new THREE.Vector3(400, 0, 0) // fecha o loop
+      ];
+      curve = new THREE.CatmullRomCurve3(points, true);
+
+      createMonacoPhysicalTrack(curve, planeWidth);
+
+      // Calcular centro aproximado do circuito para uso global na marina
+      let sumX = 0, sumZ = 0;
+      for (let i = 0; i < points.length; i++) {
+        sumX += points[i].x;
+        sumZ += points[i].z;
+      }
+      const centerX = sumX / points.length;
+      const centerZ = sumZ / points.length;
+
+      // Pista
+      const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+      const divisions = 500;
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const indices = [];
+      // Novo: lista para guardar "pedras" das subidas/descidas
+      const stoneSegments = [];
+      for (let i = 0; i < divisions; i++) {
+        const t1 = i / divisions;
+        const t2 = (i + 1) / divisions;
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+        const tangent1 = curve.getTangent(t1);
+        const tangent2 = curve.getTangent(t2);
+        const normal1 = new THREE.Vector3(-tangent1.z, 0, tangent1.x).normalize();
+        const normal2 = new THREE.Vector3(-tangent2.z, 0, tangent2.x).normalize();
+        const left1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, -planeWidth / 2);
+        const right1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, planeWidth / 2);
+        const left2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, -planeWidth / 2);
+        const right2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, planeWidth / 2);
+        const baseIndex = vertices.length / 3;
+        vertices.push(
+          left1.x, left1.y, left1.z,
+          right1.x, right1.y, right1.z,
+          left2.x, left2.y, left2.z,
+          right2.x, right2.y, right2.z
+        );
+        indices.push(
+          baseIndex, baseIndex + 1, baseIndex + 2,
+          baseIndex + 1, baseIndex + 3, baseIndex + 2
+        );
+        // Adicionar "pedra" por baixo das subidas/descidas (y > 0)
+        if (p1.y > 0 || p2.y > 0) {
+          // Baixar as pedras para garantir que ficam bem abaixo da pista
+          const minY = Math.min(p1.y, p2.y);
+          if (minY > 0) {
+            const stoneYOffset = -2.5; // valor mais negativo para garantir separação clara
+            // Calcular as 4 bordas do segmento da pista para o solo
+            const leftA = new THREE.Vector3().copy(p1).addScaledVector(normal1, -planeWidth / 2);
+            const rightA = new THREE.Vector3().copy(p1).addScaledVector(normal1, planeWidth / 2);
+            const leftB = new THREE.Vector3().copy(p2).addScaledVector(normal2, -planeWidth / 2);
+            const rightB = new THREE.Vector3().copy(p2).addScaledVector(normal2, planeWidth / 2);
+            leftA.y = stoneYOffset;
+            rightA.y = stoneYOffset;
+            leftB.y = stoneYOffset;
+            rightB.y = stoneYOffset;
+            // Calcular as 4 bordas do segmento da pista para a parte inferior da pista
+            const leftAUp = new THREE.Vector3().copy(p1).addScaledVector(normal1, -planeWidth / 2); leftAUp.y -= 0.1;
+            const rightAUp = new THREE.Vector3().copy(p1).addScaledVector(normal1, planeWidth / 2); rightAUp.y -= 0.1;
+            const leftBUp = new THREE.Vector3().copy(p2).addScaledVector(normal2, -planeWidth / 2); leftBUp.y -= 0.1;
+            const rightBUp = new THREE.Vector3().copy(p2).addScaledVector(normal2, planeWidth / 2); rightBUp.y -= 0.1;
+            // 2 triângulos para formar um retângulo entre o solo e a parte inferior da pista
+            const stoneGeometry = new THREE.BufferGeometry();
+            const stoneVertices = new Float32Array([
+              leftA.x, leftA.y, leftA.z,
+              rightA.x, rightA.y, rightA.z,
+              leftB.x, leftB.y, leftB.z,
+              rightB.x, rightB.y, rightB.z,
+              leftAUp.x, leftAUp.y, leftAUp.z,
+              rightAUp.x, rightAUp.y, rightAUp.z,
+              leftBUp.x, leftBUp.y, leftBUp.z,
+              rightBUp.x, rightBUp.y, rightBUp.z
+            ]);
+            const stoneIndices = [
+              0, 1, 4, 1, 5, 4,
+              1, 3, 5, 3, 7, 5,
+              3, 2, 7, 2, 6, 7,
+              2, 0, 6, 0, 4, 6,
+              4, 5, 6, 5, 7, 6
+            ];
+            stoneGeometry.setAttribute('position', new THREE.BufferAttribute(stoneVertices, 3));
+            stoneGeometry.setIndex(stoneIndices);
+            stoneGeometry.computeVertexNormals();
+            const stoneMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8 });
+            const stone = new THREE.Mesh(stoneGeometry, stoneMaterial);
+            stone.castShadow = true;
+            stone.receiveShadow = true;
+            scene.add(stone);
+          }
+        }
+      }
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      const track = new THREE.Mesh(geometry, trackMaterial);
+      track.receiveShadow = true;
+      track.castShadow = true;
+      scene.add(track);
+
+      // Carregar texturas
+      const textureLoader = new THREE.TextureLoader();
+      const waterTexture = textureLoader.load('/textures/material_604.png');
+      waterTexture.wrapS = waterTexture.wrapT = THREE.RepeatWrapping;
+      //waterTexture.repeat.set(4, 4); // Menos repetições
+
+      const metalTexture = textureLoader.load('/textures/Metal052C.png'); // Caminho para a textura de metal
+      metalTexture.wrapS = metalTexture.wrapT = THREE.RepeatWrapping;
+      metalTexture.repeat.set(2, 2);
+
+      // --- MARINA: água só fora do limite exterior da pista, sem elementos no interior ---
+      const seaMaterial = new THREE.MeshStandardMaterial({
+        map: waterTexture,
+        color: 0x184060, // azul escuro e discreto
+        transparent: true,
+        opacity: 0.85 // menos vivacidade
+      });
+      window.seaMaterial = seaMaterial; // tornar global para acesso posterior
+      window.waterTexture = waterTexture; // tornar global para acesso posterior
+
+      const seaGeometry = new THREE.PlaneGeometry(6000, 6000);
+      const sea = new THREE.Mesh(seaGeometry, seaMaterial);
+      sea.rotation.x = -Math.PI / 2;
+      sea.position.y = -8.2; // ligeiramente abaixo da pista
+      sea.receiveShadow = true;
+      scene.add(sea);
+      // Grid, semáforo, etc (igual à pista original)
+      lights = createSemaphore();
+      createStartingGrid();
+      createFinishLine();
+
+      //posiçao de partida
+      const tStart = 0.01; // ou 0.025 para um pouco à frente da linha
+      const startPoint = curve.getPointAt(tStart);
+      const startTangent = curve.getTangentAt(tStart);
+      carModel = chassisMesh;
+      carModel.position.copy(startPoint);
+      carDirection = Math.atan2(startTangent.x, startTangent.z);
+      carModel.rotation.y = carDirection;
+      carModel.position.y = startPoint.y; // para garantir que está na pista
+      carModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      scene.add(carModel);
+
+      // Alinhar a câmara atrás do carro logo no início
+      {
+        const carDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(chassisMesh.quaternion).normalize();
+        const cameraOffset = carDirection.clone().multiplyScalar(-10);
+        cameraOffset.y = 5;
+        const desiredCameraPos = new THREE.Vector3().copy(chassisMesh.position).add(cameraOffset);
+        camera.position.copy(desiredCameraPos);
+        camera.lookAt(chassisMesh.position);
+      }
+
+      // Adicionar túnel curvo entre (-100,0,20) e (-200,0,-30) seguindo a pista (ajustar altura do túnel à pista)
+      function addCurvedTunnel() {
+        // Novo: túnel maior e mais longo
+        let t1 = 0.12, t2 = 0.22; // valores ajustados para um túnel mais longo (ajusta conforme necessário)
+        const segments = 60; // mais segmentos = túnel mais longo e suave
+        const tunnelHeight = 16; // mais alto
+        const tunnelWidth = planeWidth * 1.25; // mais largo
+        const wallThickness = 1.8;
+        const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.2, roughness: 0.7 });
+        for (let i = 0; i < segments; i++) {
+          const tA = t1 + (t2 - t1) * (i / segments);
+          const tB = t1 + (t2 - t1) * ((i + 1) / segments);
+          const pA = curve.getPointAt(tA);
+          const pB = curve.getPointAt(tB);
+          const mid = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
+          const dir = new THREE.Vector3().subVectors(pB, pA).normalize();
+          const perp = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+          const roofLength = pA.distanceTo(pB);
+          const yA = pA.y, yB = pB.y;
+          // Teto
+          const roof = new THREE.Mesh(
+            new THREE.BoxGeometry(roofLength, wallThickness, tunnelWidth),
+            wallMaterial
+          );
+          roof.position.copy(mid);
+          roof.position.y = (yA + yB) / 2 + tunnelHeight - wallThickness / 2;
+          const tunnelAxis = new THREE.Vector3(1, 0, 0);
+          const quaternion = new THREE.Quaternion().setFromUnitVectors(tunnelAxis, dir);
+          roof.setRotationFromQuaternion(quaternion);
+          roof.castShadow = true;
+          roof.receiveShadow = true;
+          scene.add(roof);
+          // Parede esquerda
+          const leftWall = new THREE.Mesh(
+            new THREE.BoxGeometry(roofLength, tunnelHeight, wallThickness),
+            wallMaterial
+          );
+          leftWall.position.copy(mid);
+          leftWall.position.y = (yA + yB) / 2 + tunnelHeight / 2;
+          leftWall.position.addScaledVector(perp, -tunnelWidth / 2 + wallThickness / 2);
+          leftWall.setRotationFromQuaternion(quaternion);
+          leftWall.castShadow = true;
+          leftWall.receiveShadow = true;
+          scene.add(leftWall);
+          // Parede direita
+          const rightWall = new THREE.Mesh(
+            new THREE.BoxGeometry(roofLength, tunnelHeight, wallThickness),
+            wallMaterial
+          );
+          rightWall.position.copy(mid);
+          rightWall.position.y = (yA + yB) / 2 + tunnelHeight / 2;
+          rightWall.position.addScaledVector(perp, tunnelWidth / 2 - wallThickness / 2);
+          rightWall.setRotationFromQuaternion(quaternion);
+          rightWall.castShadow = true;
+          rightWall.receiveShadow = true;
+          scene.add(rightWall);
+          // Luzes no teto
+          const lightPos = new THREE.Vector3().copy(mid);
+          lightPos.y = (yA + yB) / 2 + tunnelHeight - 1.5;
+          const light = new THREE.PointLight(0xffffff, 1.2, 32);
+          light.position.copy(lightPos);
+          scene.add(light);
+          const lamp = new THREE.Mesh(
+            new THREE.BoxGeometry(1.2, 0.5, 1.2),
+            new THREE.MeshStandardMaterial({ color: 0xfafafa, emissive: 0xffffff, emissiveIntensity: 0.7 })
+          );
+          lamp.position.copy(lightPos);
+          scene.add(lamp);
+        }
+      }
+      addCurvedTunnel();
+
+      // Barreiras metálicas apenas onde y está entre -8 e 0
+      const barrierMaterial = new THREE.MeshStandardMaterial({ map: metalTexture, color: 0xb0b0b0, metalness: 0.8, roughness: 0.3 });
+      const barrierHeight = 1.2;
+      const barrierWidth = 0.25;
+      const barrierLength = 3;
+      const barrierYOffset = barrierHeight / 2 + 0.1;
+      const barrierSegments = 220;
+      const postHeight = 4.5;
+      const postRadius = 0.12;
+      const barRadius = 0.07;
+      const barsPerBarrier = 4;
+      const barrierOffset = 0.2; // afastar um pouco da pista
+
+      const tStartBarrier = 0.0; // barreiras desde o início
+      const tTunnelStart = 2;    // valor fora do range para nunca saltar barreiras
+      const tTunnelEnd = -1;     // idem
+      const tEndBarrier = 1.0;   // barreiras até ao fim
+
+      for (let i = 0; i < barrierSegments; i++) {
+        const t1 = i / barrierSegments;
+        const t2 = (i + 1) / barrierSegments;
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+
+        // Saltar barreiras no início, túnel e final da pista
+        if (
+          t1 < tStartBarrier ||
+          (t1 > tTunnelStart && t1 < tTunnelEnd) ||
+          t1 > tEndBarrier
+        ) continue;
+
+        // Só criar barreira se ambos os pontos estão entre -8 e 0 (inclusive)
+        if (p1.y <= 0 && p1.y >= -8 && p2.y <= 0 && p2.y >= -8) {
+          const tangent = curve.getTangent(t1);
+          const normal = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+
+          [-1, 1].forEach(side => {
+            const edge1 = new THREE.Vector3().copy(p1).addScaledVector(normal, side * (planeWidth / 2 + barrierOffset));
+            const edge2 = new THREE.Vector3().copy(p2).addScaledVector(normal, side * (planeWidth / 2 + barrierOffset));
+
+            [edge1, edge2].forEach(pos => {
+              const post = new THREE.Mesh(
+                new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 10),
+                new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8 })
+              );
+              post.position.set(pos.x, pos.y + postHeight / 2, pos.z);
+              post.castShadow = true;
+              post.receiveShadow = true;
+              scene.add(post);
+            });
+
+            for (let b = 0; b < barsPerBarrier; b++) {
+              const yBar = p1.y + 0.7 + (b * (postHeight - 1.2) / (barsPerBarrier - 1));
+              const bar = new THREE.Mesh(
+                new THREE.CylinderGeometry(barRadius, barRadius, edge1.distanceTo(edge2), 8),
+                new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7 })
+              );
+              bar.position.set(
+                (edge1.x + edge2.x) / 2,
+                yBar,
+                (edge1.z + edge2.z) / 2
+              );
+              bar.lookAt(edge2.x, yBar, edge2.z);
+              bar.rotateX(Math.PI / 2);
+              bar.castShadow = true;
+              bar.receiveShadow = true;
+              scene.add(bar);
+            }
+          });
+        }
+      }
+
+      // Posição de partida personalizada (atrás do início)
+      monacoStartLinePosition = curve.getPointAt(tStart);
+
+      // Novo semáforo para Mónaco
+      function createMonacoSemaphore() {
+        const startPoint = curve.getPointAt(tStart);
+        const startTangent = curve.getTangentAt(tStart);
+        const perpendicular = new THREE.Vector3(-startTangent.z, 0, startTangent.x).normalize();
+
+        // Postes laterais
+        const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 32);
+        const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const pole1 = new THREE.Mesh(poleGeometry, poleMaterial);
+        pole1.position.copy(startPoint).addScaledVector(perpendicular, -planeWidth / 2);
+        pole1.position.y = 2.5;
+        scene.add(pole1);
+        const pole2 = new THREE.Mesh(poleGeometry, poleMaterial);
+        pole2.position.copy(startPoint).addScaledVector(perpendicular, planeWidth / 2);
+        pole2.position.y = 2.5;
+        scene.add(pole2);
+
+        // Barra superior
+        const barGeometry = new THREE.BoxGeometry(planeWidth, 0.3, 0.3);
+        const barMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const bar = new THREE.Mesh(barGeometry, barMaterial);
+        bar.position.copy(startPoint);
+        bar.position.y = 5;
+        bar.lookAt(bar.position.clone().add(startTangent));
+        scene.add(bar);
+
+        // Semáforos (5 luzes vermelhas)
+        const lightGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+        const lights = [];
+        const lightSpacing = planeWidth / 6;
+        for (let i = 0; i < 5; i++) {
+          const redLightMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+          const light = new THREE.Mesh(lightGeometry, redLightMaterial);
+          light.position.copy(startPoint);
+          light.position.y = 5;
+          light.position.addScaledVector(perpendicular, -planeWidth / 2 + lightSpacing * (i + 1));
+          scene.add(light);
+          lights.push(light);
+        }
+        return lights;
+      }
+
+      // Nova linha de partida para Mónaco
+      function createMonacoStartLine() {
+        const finishMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const finishGeometry = new THREE.PlaneGeometry(planeWidth, 0.2);
+        const finishLine = new THREE.Mesh(finishGeometry, finishMaterial);
+
+        // Alinhar com a tangente da pista na posição de partida
+        finishLine.rotation.x = -Math.PI / 2;
+        const startTangent = curve.getTangentAt(tStart);
+        finishLine.rotation.z = Math.atan2(startTangent.x, startTangent.z);
+
+        // Colocar exatamente à altura da pista naquele ponto
+        finishLine.position.copy(monacoStartLinePosition);
+        finishLine.position.y = monacoStartLinePosition.y + 0.02; // garantir que está acima da pista
+
+        scene.add(finishLine);
+      }
+
+      // Substituir as chamadas originais:
+      lights = createMonacoSemaphore();
+      createMonacoStartLine();
+
+      // Ajustar a posição inicial do carro:
+      carModel.position.copy(monacoStartLinePosition);
+      carDirection = Math.atan2(startTangent.x, startTangent.z);
+      carModel.rotation.y = carDirection;
+
+      chassisBody.position.set(monacoStartLinePosition.x, monacoStartLinePosition.y + 0.6, monacoStartLinePosition.z);
+      chassisBody.velocity.set(0, 0, 0);
+      chassisBody.angularVelocity.set(0, 0, 0);
+      chassisBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0,1,0), carDirection);
+
+      //addMonacoTrackLines(curve, planeWidth);
+
+      startRaceCountdown();
+      window.addEventListener('resize', onWindowResize);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = true;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = true;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = true;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = true;
+        if (e.key === 'r') reverse = true;
+        if (e.key === 'p') {
+          firstPersonView = !firstPersonView;
+          thirdPersonView = !firstPersonView;
+        }
+        if (e.key === 'b') {
+          frontView = true;
+        }
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'a' || e.key === 'ArrowLeft') moveLeft = false;
+        if (e.key === 'd' || e.key === 'ArrowRight') moveRight = false;
+        if (e.key === 'w' || e.key === 'ArrowUp') moveUp = false;
+        if (e.key === 's' || e.key === 'ArrowDown') moveDown = false;
+        if (e.key === 'r') reverse = false;
+        if (e.key === 'b') frontView = false;
+      });
+    }
+
+    function createTrack() {
+      // Traçado da pista original (plano, sem subidas/descidas)
+      const points = [
+        new THREE.Vector3(0, 0, -200),
+        new THREE.Vector3(50, 0, -200),
+        new THREE.Vector3(100, 0, -150),
+        new THREE.Vector3(150, 0, -100),
+        new THREE.Vector3(200, 0, -50),
+        new THREE.Vector3(150, 0, 0),
+        new THREE.Vector3(100, 0, 50),
+        new THREE.Vector3(50, 0, 100),
+        new THREE.Vector3(0, 0, 150),
+        new THREE.Vector3(-50, 0, 100),
+        new THREE.Vector3(-100, 0, 50),
+        new THREE.Vector3(-150, 0, 0),
+        new THREE.Vector3(-200, 0, -50),
+        new THREE.Vector3(-150, 0, -100),
+        new THREE.Vector3(-100, 0, -150),
+        new THREE.Vector3(-50, 0, -200),
+        new THREE.Vector3(0, 0, -200)
+      ];
+      curve = new THREE.CatmullRomCurve3(points, true);
+
+      const trackMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const divisions = 500;
+
+      const geometry = new THREE.BufferGeometry();
+      const vertices = [];
+      const indices = [];
+
+      for (let i = 0; i < divisions; i++) {
+        const t1 = i / divisions;
+        const t2 = (i + 1) / divisions;
+
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+
+        const tangent1 = curve.getTangent(t1);
+        const tangent2 = curve.getTangent(t2);
+
+        const normal1 = new THREE.Vector3(-tangent1.z, 0, tangent1.x).normalize();
+        const normal2 = new THREE.Vector3(-tangent2.z, 0, tangent2.x).normalize();
+
+        const left1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, -planeWidth / 2);
+        const right1 = new THREE.Vector3().copy(p1).addScaledVector(normal1, planeWidth / 2);
+        const left2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, -planeWidth / 2);
+        const right2 = new THREE.Vector3().copy(p2).addScaledVector(normal2, planeWidth / 2);
+
+        const baseIndex = vertices.length / 3;
+
+        vertices.push(
+          left1.x, left1.y, left1.z,
+          right1.x, right1.y, right1.z,
+          left2.x, left2.y, left2.z,
+          right2.x, right2.y, right2.z
+        );
+
+        indices.push(
+          baseIndex, baseIndex + 1, baseIndex + 2,
+          baseIndex + 1, baseIndex + 3, baseIndex + 2
+        );
+      }
+
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+
+      const track = new THREE.Mesh(geometry, trackMaterial);
+
+      track.receiveShadow = true;
+      track.castShadow = true;
+      scene.add(track);
+
+      // --- Física da pista (um grande box) ---
+      const trackBody = new CANNON.Body({
+        mass: 0,
+        shape: new CANNON.Box(new CANNON.Vec3(220, 0.1, 220)), // tamanho suficiente para cobrir a pista
+        position: new CANNON.Vec3(0, 0, 0)
+      });
+      world.addBody(trackBody);
+
+      // --- Física das bordas ---
+      // REMOVER esta linha:
+      // addPhysicalBorders(curve, planeWidth);
+
+      // Adicionar bordas visuais
+      addFlatBorders(curve, planeWidth);
+    }
+
+    // Função para adicionar bordas planas
+    function addFlatBorders(curve, planeWidth) {
+      const borderWidth = 2; // Largura da borda
+      const borderHeight = 0.3; // Altura da borda (lomba)
+      const borderSegments = 500;
+      const borderColors = [0xff0000, 0xffffff];
+
+      for (let i = 0; i < borderSegments; i++) {
+        const t1 = i / borderSegments;
+        const t2 = (i + 1) / borderSegments;
+
+        const p1 = curve.getPoint(t1);
+        const p2 = curve.getPoint(t2);
+
+        const tangent = new THREE.Vector3().subVectors(p2, p1).normalize();
+        const direction = new THREE.Vector3().copy(tangent).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        const right = new THREE.Vector3().crossVectors(up, direction).normalize();
+
+        const segmentLength = p1.distanceTo(p2);
+
+        // Criar uma geometria que siga a orientação do segmento
+        const createBorder = (offset, color) => {
+          const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+          const sideOffset = new THREE.Vector3().copy(right).multiplyScalar(offset);
+          center.add(sideOffset);
+
+          // Usar BoxGeometry para criar bordas com altura
+          const geometry = new THREE.BoxGeometry(
+            segmentLength, // Comprimento do segmento
+            borderHeight,  // Altura da borda
+            borderWidth    // Largura da borda
+          );
+          const material = new THREE.MeshStandardMaterial({ color });
+          const mesh = new THREE.Mesh(geometry, material);
+
+          // Alinhar com a pista
+          const quaternion = new THREE.Quaternion();
+          quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+          mesh.quaternion.copy(quaternion);
+
+          // Posicionar no mesmo nível da pista
+          mesh.position.copy(center);
+          mesh.position.y += borderHeight / 2; // Elevar para que a altura fique visível
+
+          scene.add(mesh);
+        };
+
+        const color = borderColors[i % 2];
+        createBorder(-planeWidth / 2 - borderWidth / 2, color); // Esquerda
+        createBorder(planeWidth / 2 + borderWidth / 2, color);  // Direita
+      }
+    }
+
+    // Animação do semáforo
+    function startRaceCountdown() {
+      let index = 0;
+      const interval = setInterval(() => {
+        if (index < lights.length) {
+          lights[index].material.color.set(0x333333); // Apaga a luz
+          index++;
+        } else {
+          clearInterval(interval);
+          // Iniciar cronómetro da volta
+          lapStartTime = performance.now();
+          currentLap = 1;
+          passedStartLine = false;
+          console.log('Corrida iniciada!');
+        }
+      }, 2000);
+    }
+
+    //Criação do semáforo
+    function createSemaphore() {
+      const startPoint = curve.getPoint(0);
+      // Para garantir alinhamento, usar a tangente da reta inicial
+      const startTangent = curve.getTangent(0);
+      // Corrigir: usar tangente da reta inicial para garantir alinhamento perfeito
+      const perpendicular = new THREE.Vector3(-startTangent.z, 0, startTangent.x).normalize();
+      // Postes laterais alinhados exatamente com a largura da pista
+      const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 5, 32);
+      const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+      const pole1 = new THREE.Mesh(poleGeometry, poleMaterial);
+      pole1.position.copy(startPoint).addScaledVector(perpendicular, -planeWidth / 2);
+      pole1.position.y = 2.5;
+      scene.add(pole1);
+      const pole2 = new THREE.Mesh(poleGeometry, poleMaterial);
+      pole2.position.copy(startPoint).addScaledVector(perpendicular, planeWidth / 2);
+      pole2.position.y = 2.5;
+      scene.add(pole2);
+      // Barra superior
+      const barGeometry = new THREE.BoxGeometry(planeWidth, 0.3, 0.3);
+      const barMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+      const bar = new THREE.Mesh(barGeometry, barMaterial);
+      bar.position.copy(startPoint);
+      bar.position.y = 5;
+      // Alinhar barra com a tangente da reta inicial
+      bar.lookAt(bar.position.clone().add(startTangent));
+      scene.add(bar);
+      // Semáforos (5 luzes vermelhas)
+      const lightGeometry = new THREE.SphereGeometry(0.3, 32, 32);
+      const lights = [];
+      const lightSpacing = planeWidth / 6;
+      for (let i = 0; i < 5; i++) {
+        const redLightMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+        const light = new THREE.Mesh(lightGeometry, redLightMaterial);
+        light.position.copy(startPoint);
+        light.position.y = 5;
+        light.position.addScaledVector(perpendicular, -planeWidth / 2 + lightSpacing * (i + 1));
+        scene.add(light);
+        lights.push(light);
+      }
+      return lights;
+    }
+
+    function createStartingGrid() {
+      const numLines = 10; // Número de linhas de posição
+      const lineSpacing = 0.02; // Reduzir ainda mais a distância entre as linhas ao longo do eixo da pista
+      const trackWidth = 10; // Largura da pista
+      const padding = 1; // Espaçamento das linhas em relação às bordas da pista
+
+      for (let i = 0; i < numLines; i++) {
+        // Ajustar o valor inicial de t para começar bem atrás da linha de chegada
+        const t = -0.05 - i * lineSpacing; // Começar mais atrás e reduzir o espaçamento
+
+        // Obter o ponto e a tangente da curva para a posição da linha
+        const linePoint = curve.getPointAt((1 + t) % 1); // Garantir que o valor de t esteja no intervalo [0, 1]
+        const lineTangent = curve.getTangentAt((1 + t) % 1);
+        const perpendicular = new THREE.Vector3(-lineTangent.z, 0, lineTangent.x).normalize(); // Direção perpendicular à pista
+
+        // Criar a linha
+        const lineMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Material branco
+        const lineGeometry = new THREE.PlaneGeometry(2, 0.1); // Geometria para as linhas de posição
+        const line = new THREE.Mesh(lineGeometry, lineMaterial);
+        line.rotation.x = -Math.PI / 2; // Alinhar com o chão
+        line.rotation.z = Math.PI / 2; // Garantir que as linhas fiquem paralelas à pista
+
+        // Alternar entre direita e esquerda
+        const direction = i % 2 === 0 ? 1 : -1; // Direita (1) ou esquerda (-1)
+
+        // Calcular a posição da linha com base na borda da pista
+        const offset = direction * (trackWidth / 2 - padding); // Ajustar para a borda correspondente
+        line.position.copy(linePoint).addScaledVector(perpendicular, offset); // Ajustar no eixo perpendicular
+        line.position.y = 0.01; // Elevar ligeiramente para evitar sobreposição com a pista
+
+        scene.add(line);
+      }
+    }
+
+    function createFinishLine() {
+      const finishPoint = curve.getPoint(0); // Ponto próximo ao final da pista
+      startLinePosition = finishPoint.clone(); // Armazenar a posição da linha de chegada
+
+      const finishMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff }); // Material branco
+      const finishGeometry = new THREE.PlaneGeometry(planeWidth, 0.2); // Geometria para a linha de chegada
+
+      const finishLine = new THREE.Mesh(finishGeometry, finishMaterial);
+      finishLine.rotation.x = -Math.PI / 2; // Alinhar com o chão
+      finishLine.rotation.z = Math.PI / 2; // Garantir que a linha fique paralela à pista
+      finishLine.position.copy(finishPoint);
+      finishLine.position.y = 0.01; // Elevar ligeiramente para evitar sobreposição com a pista
+      scene.add(finishLine);
+    }
+
+    // 1. Mundo físico
+    const world = new CANNON.World();
+    world.gravity.set(0, -9.82, 0);
+
+    // // 2. Chão físico (plano)
+    // const groundBody = new CANNON.Body({
+    //   mass: 0,
+    //   shape: new CANNON.Plane(),
+    // });
+    // groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+    // world.addBody(groundBody);
+
+    // 3. Chassis visual (simples: só retângulo e rodas)
+    const chassisGroup = new THREE.Group();
+
+    // Chassi principal (retângulo) -- comprimento no X, largura no Z
+    const bodyLength = 3.0;
+    const bodyWidth = 1.6;
+    const bodyHeight = 0.45;
+    const bodyGeometry = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyLength); // X comprido, Z largo
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+    const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
+    chassisGroup.rotation.y = Math.PI / 2;
+    chassisGroup.add(bodyMesh);
+
+    // Rodas: cilindros rodados no eixo Z
+    const wheelMeshes = [];
+    const wheelRadius = 0.48;
+    const wheelWidth = 0.38;
+    // Agora o comprimento é no Z, largura no X!
+    const wheelOffsetZ = bodyLength / 2 - wheelRadius * 0.7; // frente/trás
+    const wheelOffsetX = bodyWidth / 2 + wheelWidth / 2 - 0.02; // lado
+
+    const wheelY = -bodyHeight / 2 - wheelRadius * 0.15;
+
+    const wheelPositionsVisual = [
+      [ wheelOffsetX, wheelY,  wheelOffsetZ], // Frente direita
+      [-wheelOffsetX, wheelY,  wheelOffsetZ], // Frente esquerda
+      [ wheelOffsetX, wheelY, -wheelOffsetZ], // Trás direita
+      [-wheelOffsetX, wheelY, -wheelOffsetZ], // Trás esquerda
+    ];
+    for (let i = 0; i < 4; i++) {
+      const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 32);
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+      wheel.position.set(...wheelPositionsVisual[i]);
+      // Rodar 90º no eixo Z para ficarem verticais e paralelas ao chassis
+      wheel.rotation.z = Math.PI / 2;
+      wheel.castShadow = true;
+      wheel.receiveShadow = true;
+      chassisGroup.add(wheel);
+      wheelMeshes.push(wheel);
+    }
+
+    // Substituir chassisMesh por chassisGroup
+    const chassisMesh = chassisGroup;
+
+    // 4. Chassis físico
+    const chassisShape = new CANNON.Box(new CANNON.Vec3(1, 0.25, 2));
+    const chassisBody = new CANNON.Body({ mass: 150 });
+    chassisBody.addShape(chassisShape);
+    chassisBody.position.set(0, 1, 0);
+    world.addBody(chassisBody);
+
+    // 5. Veículo Raycast
+    const vehicle = new CANNON.RaycastVehicle({
+      chassisBody: chassisBody,
+      indexRightAxis: 0,
+      indexUpAxis: 1,
+      indexForwardAxis: 2
+    });
+    const wheelOptions = {
+      radius: 0.4,
+      directionLocal: new CANNON.Vec3(0, -1, 0),
+      suspensionStiffness: 30,
+      suspensionRestLength: 0.3,
+      frictionSlip: 5,
+      dampingRelaxation: 2.3,
+      dampingCompression: 4.4,
+      maxSuspensionForce: 100000,
+      rollInfluence: 0.01,
+      axleLocal: new CANNON.Vec3(-1, 0, 0),
+      chassisConnectionPointLocal: new CANNON.Vec3(),
+      maxSuspensionTravel: 0.3,
+      customSlidingRotationalSpeed: -30,
+      useCustomSlidingRotationalSpeed: true
+    };
+    const wheelPositions = [
+      new CANNON.Vec3(-1, 0, 1.5),
+      new CANNON.Vec3(1, 0, 1.5),
+      new CANNON.Vec3(-1, 0, -1.5),
+      new CANNON.Vec3(1, 0, -1.5)
+    ];
+    wheelPositions.forEach(pos => {
+      wheelOptions.chassisConnectionPointLocal.set(pos.x, pos.y, pos.z);
+      vehicle.addWheel(wheelOptions);
+    });
+    vehicle.addToWorld(world);
+
+    // 6. Controlo do carro
+    const keys = {};
+    document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    function updateControls() {
+      const maxForce = 700;
+      const steering = 0.5;
+      // Reset
+      for (let i = 0; i < 4; i++) {
+        vehicle.setBrake(0, i);
+        vehicle.setSteeringValue(0, i);
+      }
+      if (keys['w']) {
+        vehicle.applyEngineForce(-maxForce, 2);
+        vehicle.applyEngineForce(-maxForce, 3);
+      } else if (keys['s']) {
+        vehicle.applyEngineForce(maxForce, 2);
+        vehicle.applyEngineForce(maxForce, 3);
+      } else {
+        vehicle.applyEngineForce(0, 2);
+        vehicle.applyEngineForce(0, 3);
+      }
+      if (keys['a']) {
+        vehicle.setSteeringValue(steering, 0);
+        vehicle.setSteeringValue(steering, 1);
+      } else if (keys['d']) {
+        vehicle.setSteeringValue(-steering, 0);
+        vehicle.setSteeringValue(-steering, 1);
+      }
+    }
+
+    // 7. Loop de animação
+    function animate() {
+      requestAnimationFrame(animate);
+      world.step(1 / 60);
+
+      // Sincronizar chassis visual com o físico
+      chassisMesh.position.copy(chassisBody.position);
+      chassisMesh.quaternion.copy(chassisBody.quaternion);
+
+      updateControls();
+
+      // Calcular direção do carro a partir da orientação do chassis
+      const carDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(chassisMesh.quaternion).normalize();
+
+      // Posição desejada da câmara (atrás e acima do carro)
+      const cameraOffset = carDirection.clone().multiplyScalar(-10);
+      cameraOffset.y = 5;
+
+      const desiredCameraPos = new THREE.Vector3().copy(chassisMesh.position).add(cameraOffset);
+
+      camera.position.lerp(desiredCameraPos, 0.15);
+      camera.lookAt(chassisMesh.position);
+
+      // Simular direção realista: rodar rodas dianteiras visualmente (suave e no sentido correto)
+      const maxSteerAngle = Math.PI / 8;
+      let targetSteer = 0;
+      if (keys['a']) targetSteer = maxSteerAngle; // Esquerda = positivo
+      else if (keys['d']) targetSteer = -maxSteerAngle; // Direita = negativo
+
+      // Inverter direção das rodas se estiver em marcha-atrás
+      if (keys['s'] && !keys['w']) targetSteer *= -1;
+
+      // Interpolação suave do ângulo das rodas dianteiras
+      wheelMeshes[0].rotation.y += (targetSteer - wheelMeshes[0].rotation.y) * 0.09;
+      wheelMeshes[1].rotation.y += (targetSteer - wheelMeshes[1].rotation.y) * 0.09;
+
+      // Detetar passagem pela linha de chegada
+      const carPos = chassisMesh.position;
+      const startLine = startLinePosition || new THREE.Vector3(0, 0, -200); // ajuste conforme a sua pista
+      const distToStart = carPos.distanceTo(startLine);
+
+      if (distToStart < 5) { // 5 pode ser ajustado conforme a largura da linha
+        if (!passedStartLine) {
+          passedStartLine = true;
+          if (lapStartTime !== null) {
+            const now = performance.now();
+            const lapTime = (now - lapStartTime) / 1000;
+            lapStartTime = now;
+            currentLap++;
+            // Só guarda e mostra tempos a partir da segunda passagem
+            if (currentLap > 1) {
+              lapTimes.push(lapTime);
+            }
+            const lapsText = lapTimes.map((t, i) => `Volta ${i + 1}: ${t.toFixed(2)}s`).join('\n');
+            document.getElementById('lap-times').innerText = lapsText + `\nVolta atual: ${currentLap}`;
+          }
+        }
+      } else {
+        passedStartLine = false;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      if (!camera || !renderer) return;
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Função para criar a pista de Mónaco (física)
+    function createMonacoPhysicalTrack(curve, planeWidth) {
+      const divisions = 300; // Mais segmentos = transições mais suaves
+      const overlap = 1.0;   // Mais sobreposição = menos buracos
+      for (let i = 0; i < divisions; i++) {
+        const t1 = i / divisions;
+        const t2 = (i + 1) / divisions;
+        const p1 = curve.getPointAt(t1);
+        const p2 = curve.getPointAt(t2);
+
+        const segmentDir = new CANNON.Vec3(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z).unit();
+        const length = Math.sqrt(
+          Math.pow(p2.x - p1.x, 2) +
+          Math.pow(p2.y - p1.y, 2) +
+          Math.pow(p2.z - p1.z, 2)
+        ) + overlap;
+
+        const center = new CANNON.Vec3(
+          (p1.x + p2.x) / 2 + segmentDir.x * (overlap / 2),
+          (p1.y + p2.y) / 2 + segmentDir.y * (overlap / 2),
+          (p1.z + p2.z) / 2 + segmentDir.z * (overlap / 2)
+        );
+
+        const boxShape = new CANNON.Box(
+          new CANNON.Vec3(planeWidth / 2, 0.5, length / 2) // altura 0.5 para mais tolerância
+        );
+        const boxBody = new CANNON.Body({ mass: 0 });
+        boxBody.addShape(boxShape);
+
+        const defaultDir = new CANNON.Vec3(0, 0, 1);
+        const q = new CANNON.Quaternion();
+        q.setFromVectors(defaultDir, segmentDir);
+        boxBody.quaternion.copy(q);
+
+        boxBody.position.copy(center);
+        world.addBody(boxBody);
+      }
+    }
+  </script>
+</body>
+</html>
