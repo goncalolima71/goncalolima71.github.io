@@ -1165,54 +1165,81 @@
     // groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
     // world.addBody(groundBody);
 
-    // 3. Chassis visual (simples: só retângulo e rodas)
-    const chassisGroup = new THREE.Group();
+    // --- CRIAÇÃO DO CHASSIS VISUAL F1 DETALHADO ---
+    const matRed = new THREE.MeshStandardMaterial({ color: 0xff2222, metalness: 0.6, roughness: 0.4 });
+    const matBlack = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.7, roughness: 0.5 });
+    const matWheel = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.8, roughness: 0.6 });
 
-    // Chassi principal (retângulo) -- comprimento no X, largura no Z
-    const bodyLength = 3.0;
-    const bodyWidth = 1.6;
-    const bodyHeight = 0.45;
-    const bodyGeometry = new THREE.BoxGeometry(bodyWidth, bodyHeight, bodyLength); // X comprido, Z largo
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-    const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
-    bodyMesh.castShadow = true;
-    bodyMesh.receiveShadow = true;
-    chassisGroup.rotation.y = Math.PI / 2;
-    chassisGroup.add(bodyMesh);
+    const chassisMesh = new THREE.Group();
 
-    // Rodas: cilindros rodados no eixo Z
-    const wheelMeshes = [];
-    const wheelRadius = 0.48;
-    const wheelWidth = 0.38;
-    // Agora o comprimento é no Z, largura no X!
-    const wheelOffsetZ = bodyLength / 2 - wheelRadius * 0.7; // frente/trás
-    const wheelOffsetX = bodyWidth / 2 + wheelWidth / 2 - 0.02; // lado
+    // Corpo principal (vermelho)
+    const corpo = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.4, 4.4), matRed);
+    corpo.castShadow = corpo.receiveShadow = true;
+    chassisMesh.add(corpo);
 
-    const wheelY = -bodyHeight / 2 - wheelRadius * 0.15;
+    // Nariz (vermelho)
+    const nariz = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.4, 2.3, 12), matRed);
+    nariz.rotation.x = Math.PI / 2;
+    nariz.position.set(0, 0, 3.4);
+    nariz.castShadow = nariz.receiveShadow = true;
+    chassisMesh.add(nariz);
 
-    const wheelPositionsVisual = [
-      [ wheelOffsetX, wheelY,  wheelOffsetZ], // Frente direita
-      [-wheelOffsetX, wheelY,  wheelOffsetZ], // Frente esquerda
-      [ wheelOffsetX, wheelY, -wheelOffsetZ], // Trás direita
-      [-wheelOffsetX, wheelY, -wheelOffsetZ], // Trás esquerda
-    ];
-    for (let i = 0; i < 4; i++) {
-      const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 32);
-      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-      const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-      wheel.position.set(...wheelPositionsVisual[i]);
-      // Rodar 90º no eixo Z para ficarem verticais e paralelas ao chassis
-      wheel.rotation.z = Math.PI / 2;
-      wheel.castShadow = true;
-      wheel.receiveShadow = true;
-      chassisGroup.add(wheel);
-      wheelMeshes.push(wheel);
+    // Asa dianteira (preto)
+    const asaD = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.05, 0.25), matBlack);
+    asaD.position.set(0, -0.1, 4.5);
+    asaD.castShadow = asaD.receiveShadow = true;
+    chassisMesh.add(asaD);
+
+    // Cockpit (preto)
+    const cockpitBase = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 1.2), matBlack);
+    cockpitBase.position.set(0, 0.25, -0.2);
+    cockpitBase.castShadow = cockpitBase.receiveShadow = true;
+    chassisMesh.add(cockpitBase);
+
+    const cockpitArco = new THREE.Mesh(
+      new THREE.TorusGeometry(0.5, 0.15, 16, 100, Math.PI),
+      matBlack
+    );
+    cockpitArco.rotation.set(Math.PI / 2, 0, 0);
+    cockpitArco.position.set(0, 0.55, -0.2);
+    chassisMesh.add(cockpitArco);
+
+    // Asa traseira (preto)
+    const asaT = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.05, 0.6), matBlack);
+    asaT.position.set(0, 0.3, -2.2);
+    asaT.castShadow = asaT.receiveShadow = true;
+    chassisMesh.add(asaT);
+
+    // Suportes traseiros (preto)
+    for (let x of [-1.0, 1.0]) {
+      const suporte = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 0.05), matBlack);
+      suporte.position.set(x, 0.175, -2.2);
+      suporte.castShadow = suporte.receiveShadow = true;
+      chassisMesh.add(suporte);
     }
 
-    // Substituir chassisMesh por chassisGroup
-    const chassisMesh = chassisGroup;
+    // Spoiler traseiro (preto)
+    const spoiler = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.25), matBlack);
+    spoiler.position.set(0, 0.3, -2.5);
+    chassisMesh.add(spoiler);
 
-    // 4. Chassis físico
+    // Rodas (pretas)
+    const rodaGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.5, 32);
+    const posicoesRodas = [
+      [-1.0, -0.25, -1.6], [1.0, -0.25, -1.6],
+      [-1.0, -0.25, 1.6], [1.0, -0.25, 1.6]
+    ];
+    const wheelMeshes = [];
+    for (let pos of posicoesRodas) {
+      const roda = new THREE.Mesh(rodaGeo, matWheel);
+      roda.rotation.z = Math.PI / 2;
+      roda.position.set(...pos);
+      roda.castShadow = roda.receiveShadow = true;
+      chassisMesh.add(roda);
+      wheelMeshes.push(roda);
+    }
+
+    // --- CRIAÇÃO DO CHASSIS FÍSICO ---
     const chassisShape = new CANNON.Box(new CANNON.Vec3(1, 0.25, 2));
     const chassisBody = new CANNON.Body({ mass: 150 });
     chassisBody.addShape(chassisShape);
@@ -1267,16 +1294,18 @@
         vehicle.setBrake(0, i);
         vehicle.setSteeringValue(0, i);
       }
+      // Aplicar força motriz nas rodas da frente (índices 0 e 1)
       if (keys['w']) {
-        vehicle.applyEngineForce(-maxForce, 2);
-        vehicle.applyEngineForce(-maxForce, 3);
+        vehicle.applyEngineForce(-maxForce, 0);
+        vehicle.applyEngineForce(-maxForce, 1);
       } else if (keys['s']) {
-        vehicle.applyEngineForce(maxForce, 2);
-        vehicle.applyEngineForce(maxForce, 3);
+        vehicle.applyEngineForce(maxForce, 0);
+        vehicle.applyEngineForce(maxForce, 1);
       } else {
-        vehicle.applyEngineForce(0, 2);
-        vehicle.applyEngineForce(0, 3);
+        vehicle.applyEngineForce(0, 0);
+        vehicle.applyEngineForce(0, 1);
       }
+      // Direção nas rodas da frente (índices 0 e 1)
       if (keys['a']) {
         vehicle.setSteeringValue(steering, 0);
         vehicle.setSteeringValue(steering, 1);
@@ -1312,15 +1341,26 @@
       // Simular direção realista: rodar rodas dianteiras visualmente (suave e no sentido correto)
       const maxSteerAngle = Math.PI / 8;
       let targetSteer = 0;
-      if (keys['a']) targetSteer = maxSteerAngle; // Esquerda = positivo
-      else if (keys['d']) targetSteer = -maxSteerAngle; // Direita = negativo
+      if (keys['a']) targetSteer = maxSteerAngle;
+      else if (keys['d']) targetSteer = -maxSteerAngle;
 
-      // Inverter direção das rodas se estiver em marcha-atrás
-      if (keys['s'] && !keys['w']) targetSteer *= -1;
+      // Detetar marcha-atrás pelo movimento real do carro no eixo local Z
+      let isReverse = false;
+      {
+        // Obter velocidade do chassis no mundo
+        const velocityWorld = chassisBody.velocity;
+        // Obter orientação do chassis
+        const forwardWorld = new CANNON.Vec3(0, 0, 1);
+        chassisBody.vectorToWorldFrame(forwardWorld, forwardWorld);
+        // Produto escalar: negativo = marcha-atrás
+        const vel = velocityWorld.x * forwardWorld.x + velocityWorld.y * forwardWorld.y + velocityWorld.z * forwardWorld.z;
+        isReverse = vel < -0.1;
+      }
+      if (isReverse) targetSteer *= -1;
 
-      // Interpolação suave do ângulo das rodas dianteiras
-      wheelMeshes[0].rotation.y += (targetSteer - wheelMeshes[0].rotation.y) * 0.09;
-      wheelMeshes[1].rotation.y += (targetSteer - wheelMeshes[1].rotation.y) * 0.09;
+      // Interpolação suave do ângulo das rodas dianteiras (as da FRENTE são os índices 2 e 3)
+      wheelMeshes[2].rotation.y += (targetSteer - wheelMeshes[2].rotation.y) * 0.09;
+      wheelMeshes[3].rotation.y += (targetSteer - wheelMeshes[3].rotation.y) * 0.09;
 
       // Detetar passagem pela linha de chegada
       const carPos = chassisMesh.position;
