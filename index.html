@@ -102,6 +102,20 @@
       background: #222;
       color: #ffb300;
     }
+    #customize-btn {
+      margin: 20px 0 0 0;
+      padding: 18px 36px;
+      font-size: 1.5rem;
+      border: none;
+      border-radius: 10px;
+      background: #ffb300;
+      color: #222;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #customize-btn:hover {
+      background: #ffd700;
+    }
   </style>
   <script type="importmap">
     {
@@ -115,6 +129,8 @@
 <body>
   <!-- Menu inicial -->
   <div id="start-screen">
+    <h1 style="color:#fff; margin-bottom:30px;">Jogo de F1 3D</h1>
+    <button id="customize-btn">Personalizar Carro</button>
     <div id="car-selection">
       <div class="car-option selected" data-model="aston_martin_f1_amr23_2023.glb">
         <span>Aston Martin AMR23</span>
@@ -1221,7 +1237,7 @@
       const bar = new THREE.Mesh(barGeometry, barMaterial);
       bar.position.copy(startPoint);
       bar.position.y = 5;
-      // Alinhar barra com a tangente da reta inicial
+      // Alinhar bar com a tangente da reta inicial
       bar.lookAt(bar.position.clone().add(startTangent));
       scene.add(bar);
       // Semáforos (5 luzes vermelhas)
