@@ -300,16 +300,15 @@
     let passedStartLine = false;
     let startLinePosition;
     let lights = [];
-    let shrekMixer = null;
     const clock = new THREE.Clock();
     let oceanStartLinePosition = null;
     let oceanStartLinePerp = null;
     let chassisBody;
-    let wheelMeshes = []; // <-- Agora global
+    let wheelMeshes = [];
     let cornerCutWarnings = 0;
     let warningTimeout = null;
     let dqTimeout = null;
-    let wasOffTrack = false; // <-- Adicionada aqui
+    let wasOffTrack = false;
     const cactusObjects = [];
     let offTrackTimer= 0;
     let lastOffTrackTime = 0;
@@ -354,7 +353,7 @@
         } else {
           init();
         }
-        animate(); // Só aqui!
+        animate();
       }, 500); // Simula um pequeno loading
     });
 
@@ -399,11 +398,11 @@
       const sun = new THREE.DirectionalLight(0xfff7e0, 2.2); // cor amarelada, intensidade forte
       sun.position.set(80, 120, 60); // posição alta e lateral
       sun.castShadow = true;
-      sun.shadow.mapSize.width = 4096; // aumentar resolução
+      sun.shadow.mapSize.width = 4096;
       sun.shadow.mapSize.height = 4096;
-      sun.shadow.bias = -0.0005; // reduzir artefactos
+      sun.shadow.bias = -0.0005;
       sun.shadow.normalBias = 0.01;
-      sun.shadow.radius = 4; // suavizar ainda mais
+      sun.shadow.radius = 4;
       sun.shadow.camera.near = 10;
       sun.shadow.camera.far = 400;
       sun.shadow.camera.left = -200;
@@ -411,11 +410,8 @@
       sun.shadow.camera.top = 200;
       sun.shadow.camera.bottom = -200;
       scene.add(sun);
-      // Opcional: helper para visualizar área de sombra
-      // const helper = new THREE.CameraHelper(sun.shadow.camera);
-      // scene.add(helper);
 
-      // Luz direcional extra para iluminar melhor o carro (mantém, mas reduz intensidade)
+      // Luz direcional extra para iluminar melhor o carro
       const light = new THREE.DirectionalLight(0xffffff, 0.7);
       light.position.set(0, 20, 20);
       light.castShadow = false;
@@ -515,14 +511,14 @@
       carModel = chassisMesh;
       scene.add(carModel);
 
-      const tStart = 0.99; // Um pouco antes do início (ajuste conforme necessário)
+      const tStart = 0.99; 
       const startBeforeLine = curve.getPointAt(tStart);
       const forward = curve.getTangentAt(tStart);
 
       chassisBody.position.set(startBeforeLine.x, startBeforeLine.y + 0.3, startBeforeLine.z);
       chassisBody.velocity.set(0, 0, 0);
       chassisBody.angularVelocity.set(0, 0, 0);
-      // Corrigir orientação física: garantir que o eixo Y está para cima
+
       const up = new CANNON.Vec3(0, 1, 0);
       const q = new CANNON.Quaternion();
       q.setFromVectors(new CANNON.Vec3(0, 0, 1), forward);
@@ -596,11 +592,9 @@
         });
         world.addBody(treeBody);
 
-        // Guarda referência se quiseres detetar colisão depois
         collidableObjects.push(treeBody);
       }
 
-      // Adicionar muitas árvores maiores e mais juntas à volta da pista, evitando a pista
       let treesPlaced = 0;
       let tries = 0;
       const totalTrees = 180;
@@ -647,7 +641,7 @@
       window.currentTrackWidth = planeWidth;
     }
 
-    // Função para criar a pista de Mónaco
+    // Função para criar a pista Ocean
     function initOcean() {
       let planeWidth = planeWidth2; // Largura da pista
       scene = new THREE.Scene();
@@ -687,7 +681,6 @@
       light.castShadow = false;
       scene.add(light);
 
-      // Traçado da pista de Mónaco (igual ao exemplo fornecido)
       const points = [
         new THREE.Vector3(350, 0, 0),
         new THREE.Vector3(300, 0, 40),
@@ -760,7 +753,7 @@
       createOceanPhysicalTrack(curve, planeWidth);
       addOceanTrackLines(curve, planeWidth);
       addOceanGuardRails(curve, planeWidth);
-      // Água (marina)
+      // Água
       const textureLoader = new THREE.TextureLoader();
       const waterTexture = textureLoader.load('/textures/material_604.png');
       waterTexture.wrapS = waterTexture.wrapT = THREE.RepeatWrapping;
@@ -774,9 +767,9 @@
       const seaGeometry = new THREE.PlaneGeometry(6000, 6000);
       const sea = new THREE.Mesh(seaGeometry, seaMaterial);
       sea.rotation.x = -Math.PI / 2;
-      sea.position.y = -0.5; // <- bem abaixo da pista
+      sea.position.y = -0.5; 
       sea.receiveShadow = true;
-      sea.renderOrder = -1; // <- desenha sempre antes
+      sea.renderOrder = -1; 
       scene.add(sea);
 
       // Semáforo e linha de partida (apenas UM semáforo)
@@ -1019,14 +1012,14 @@
       world.addBody(desertBody);
 
       // Luz do sol (DirectionalLight) para simular o sol
-      const sun = new THREE.DirectionalLight(0xfff7e0, 2.2); // cor amarelada, intensidade forte
-      sun.position.set(80, 120, 60); // posição alta e lateral
+      const sun = new THREE.DirectionalLight(0xfff7e0, 2.2);
+      sun.position.set(80, 120, 60); 
       sun.castShadow = true;
-      sun.shadow.mapSize.width = 4096; // aumentar resolução
+      sun.shadow.mapSize.width = 4096;
       sun.shadow.mapSize.height = 4096;
-      sun.shadow.bias = -0.0005; // reduzir artefactos
+      sun.shadow.bias = -0.0005; 
       sun.shadow.normalBias = 0.01;
-      sun.shadow.radius = 4; // suavizar ainda mais
+      sun.shadow.radius = 4; 
       sun.shadow.camera.near = 10;
       sun.shadow.camera.far = 400;
       sun.shadow.camera.left = -200;
@@ -1034,11 +1027,7 @@
       sun.shadow.camera.top = 200;
       sun.shadow.camera.bottom = -200;
       scene.add(sun);
-      // Opcional: helper para visualizar área de sombra
-      // const helper = new THREE.CameraHelper(sun.shadow.camera);
-      // scene.add(helper);
 
-      // Luz direcional extra para iluminar melhor o carro (mantém, mas reduz intensidade)
       const light = new THREE.DirectionalLight(0xffffff, 0.7);
       light.position.set(0, 20, 20);
       light.castShadow = false;
@@ -1191,7 +1180,7 @@
         }
       });
 
-      // Espalhar catos aleatórios fora da pista
+      // Adiciona cactos no deserto
       let cactiPlaced = 0, cactusTries = 0;
       const totalCacti = 180;
       while (cactiPlaced < totalCacti && cactusTries < totalCacti * 10) {
@@ -1200,7 +1189,7 @@
         const radius = 70 + Math.random() * 600; // Espalhar pelo plano
         const x = Math.cos(angle) * radius;
         const z = Math.sin(angle) * radius;
-        // Não colocar demasiado perto da pista
+
         if (typeof isPointNearTrack === "function" && !isPointNearTrack(x, z, planeWidth / 2 + 8)) {
           const type = Math.random() > 0.5 ? 1 : 0;
           addCactus(x, z, type);
@@ -1209,7 +1198,7 @@
       }
 
 
-      // Listeners (se necessário)
+
       startRaceCountdown();
       window.addEventListener('resize', onWindowResize);
       document.addEventListener('keydown', (e) => {
@@ -1241,7 +1230,6 @@
     }
 
     function createTrack(pointsOverride = null) {
-      // Se receber pontos customizados, usa-os; senão, usa os pontos originais
       const points = pointsOverride || [
         new THREE.Vector3(0, 0, -200),
         new THREE.Vector3(50, 0, -200),
@@ -1319,11 +1307,6 @@
       });
       world.addBody(trackBody);
 
-      // --- Física das bordas ---
-      // REMOVER esta linha:
-      // addPhysicalBorders(curve, planeWidth);
-
-      // Adicionar bordas visuais
       addFlatBorders(curve, planeWidth);
     }
 
